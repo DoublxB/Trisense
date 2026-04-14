@@ -1,0 +1,36 @@
+# -*- coding: utf-8 -*-
+"""
+Punct de intrare: Creier TriSense 3.0 (PC).
+
+Ruleaza din folderul proiectului:
+  py run_trisense_brain.py
+
+Setari: copiaza .env.example in .env si completeaza GEMINI_API_KEY (Google AI Studio).
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+# Asigura import din acelasi folder cu proiectul
+ROOT = Path(__file__).resolve().parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(ROOT / ".env", override=True)
+except ImportError:
+    pass
+
+from trisense.brain import TriSenseBrain
+
+
+def main() -> None:
+    TriSenseBrain().run()
+
+
+if __name__ == "__main__":
+    main()

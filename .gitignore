@@ -1,0 +1,8 @@
+# Nu comita secrete
+.env
+secrets.py
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
