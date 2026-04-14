@@ -21,6 +21,34 @@ Documentatie oficiala:
 - **Getting started:** <https://www.antonsmindstorms.com/docs/getting-started-with-your-new-lms-esp32v2-board/>
 - **Toate placile de expansiune:** <https://www.antonsmindstorms.com/doc-category/expansion-board-documentation/>
 
+## Schema pini (TriSense)
+
+Maparea folosita in codul curent (`main_robot.py`):
+
+| Modul | Semnal | GPIO | Observatii |
+|------|--------|------|------------|
+| Hub LEGO (LPF2/PUPRemote) | UART catre hub | `7/8` | Linie dedicata LMS-ESP32 pentru legatura cu hub-ul LEGO |
+| HuskyLens (I2C) | `SCL` | `22` | `SoftI2C(scl=Pin(22), sda=Pin(21))` |
+| HuskyLens (I2C) | `SDA` | `21` | Implicit pentru camera in proiect |
+| Difuzor I2S (MAX98357) | `BCLK` | `14` | Clock audio I2S |
+| Difuzor I2S (MAX98357) | `LRC/WS` | `15` | Word select I2S |
+| Difuzor I2S (MAX98357) | `DIN` | `26` | Date audio catre amplificator |
+| Amplificator | `EN` | `32` | Activare amplificator |
+| Microfon I2S (INMP441) | `SD` | `33` | Date microfon (RX), pe acelasi BCLK/LRC |
+
+Schema rapida:
+
+```text
+LMS-ESP32
+├─ Hub LEGO (UART): GPIO 7/8
+├─ HuskyLens I2C: SCL=22, SDA=21
+└─ Audio
+   ├─ MAX98357 (speaker): BCLK=14, LRC=15, DIN=26, EN=32
+   └─ INMP441 (mic): SD=33 (share BCLK=14, LRC=15)
+```
+
+Nota: evita schimbarea pinilor `7/8` daca legatura cu hub-ul functioneaza; sunt critici pentru handshake LPF2 pe LMS-ESP32.
+
 ## MQTT (ESP32 <-> PC)
 
 | Topic | Directie | Continut |
