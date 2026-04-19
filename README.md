@@ -101,6 +101,54 @@ Acest mod porneste si serverul TCP de voce (implicit port `8765`), care primeste
 - Creeaza `secrets.py` pe ESP (nu in repo) pentru chei/date locale (ex: `GEMINI_API_KEY`, `PC_VOICE_IP`).
 - Verifica reteaua Wi-Fi si brokerul MQTT din configurarea ESP.
 
+## Teste audio hardware (difuzor + microfon)
+
+Inainte de test:
+- conecteaza placa pe portul serial corect (ex. `COM7`);
+- opreste orice rulare anterioara (`main_robot.py`) din acelasi port;
+- foloseste aceleasi legaturi din schema de pini (`BCLK=14`, `LRC=15`, `DIN=26`, `MIC_SD=33`).
+
+### Test difuzor (MAX98357)
+
+Script: `test_i2s_beep.py`  
+Rol: verifica strict lantul I2S TX + amplificator + difuzor (fara MQTT/HuskyLens).
+
+Rulare:
+
+```bash
+python -m mpremote connect COM7 run test_i2s_beep.py
+```
+
+Ce trebuie sa vezi/auzi:
+- in serial: `I2S0 init OK 44100 STEREO`, apoi `write runda ...`;
+- pe difuzor: ton de test (beep/sine) repetat.
+
+Daca e liniste:
+- verifica alimentarea modulului MAX98357 (`Vin`, `GND`);
+- verifica `DIN/BCLK/LRC` si pinul de enable;
+- testeaza cu alt difuzor sau leaga `SD/EN` modul direct la `3.3V` (cum mentioneaza scriptul).
+
+### Test microfon + difuzor (INMP441 + MAX98357)
+
+Script: `test_mic_difuzor.py`  
+Rol: ruleaza pe rand testul de difuzor si apoi citirea microfonului I2S (nivel pe serial).
+
+Rulare:
+
+```bash
+python -m mpremote connect COM7 run test_mic_difuzor.py
+```
+
+Ce trebuie sa vezi:
+- `OK: I2S TX scris. Ar trebui sa auzi un ton.` (difuzor);
+- `I2S RX OK. Incerc inregistrarea...` (microfon);
+- valori nenule pentru `Varf L`, `Varf R`, `max` cand vorbesti spre microfon.
+
+Interpretare rapida:
+- `Semnal foarte mic` -> problema pe `SD` microfon / ceas / alimentare;
+- `Semnal blocat/saturat` -> verificare `L/R`, `WS/SCK`, `GND comun`;
+- `Microfon pare activ.` -> test trecut.
+
 ## Ce face fiecare fisier
 
 ### Radacina proiectului
