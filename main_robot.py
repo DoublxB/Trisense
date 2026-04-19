@@ -84,14 +84,14 @@ _TTS_STREAM_CHUNK_BYTES = 2048
 _TTS_STEREO_WORK = bytearray(2048 * 4)
 # ~58% full scale: reduce clipping si crackling fara a pierde claritatea vocii
 _TTS_GAIN_Q15 = 19000
-# Voci Gemini TTS: Sulafat=Warm, Achird=Friendly, Vindemiatrix=Gentle (calm, copii cu autism)
-_GEMINI_TTS_VOICE = "Vindemiatrix"
+# Voci Gemini TTS: Sulafat=Warm (natural), Achird=Friendly, Vindemiatrix=Gentle
+_GEMINI_TTS_VOICE = "Sulafat"
 # Limita stricta pe ESP: pana la ~80 caractere = ~5s audio (incape in RAM/HTTP body).
 _GEMINI_TTS_MAX_CHARS = 48
 # Din MQTT acceptam putin mai mult, dar tot limitat pentru stabilitate.
 _GEMINI_TTS_TOTAL_MAX_CHARS = 120
 # Cerere initiala (~5s audio); fallback un pic mai scurt daca request cade pe memorie
-_GEMINI_TTS_MAX_TOKENS = 200
+_GEMINI_TTS_MAX_TOKENS = 320
 _GEMINI_TTS_FALLBACK_CHARS = 32
 _GEMINI_TTS_FALLBACK_TOKENS = 120
 # Daca API raspunde cu body foarte mare, retry automat cu target mai scurt.
@@ -327,10 +327,10 @@ def tri_speak_gemini(text, pr_sensor=None):
             print("TTS: retry with shorter response target.")
 
         # Prompt strict + indicatii de stil (Gemini TTS suporta directii naturale).
-        # Stil: calm, lent, prietenos — potrivit pentru copii cu autism.
+        # Stil: natural, clar, prietenos — ritm conversational normal.
         prompt = (
-            "Say this in English in a calm, gentle, soft voice. "
-            "Speak slowly and clearly, with a warm and reassuring tone, "
+            "Say this in English with a natural, warm, friendly voice. "
+            "Speak clearly at a normal conversational pace, "
             "as if talking kindly to a young child. "
             "Do not add, explain, shorten or continue. Text: " + speak_text
         )
