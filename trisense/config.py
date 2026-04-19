@@ -40,7 +40,7 @@ VOICE_TCP_PORT = int(os.environ.get("VOICE_TCP_PORT", "8765"))
 ESP_AUDIO_TCP_PORT = int(os.environ.get("ESP_AUDIO_TCP_PORT", "8766"))
 # Mod stabil implicit: trimite text prin MQTT, iar ESP vorbeste local (fara audio TCP din PC).
 TRISENSE_TTS_OVER_TCP = os.environ.get("TRISENSE_TTS_OVER_TCP", "0") == "1"
-TRISENSE_TTS_VOICE = os.environ.get("TRISENSE_TTS_VOICE", "Sulafat")
+TRISENSE_TTS_VOICE = os.environ.get("TRISENSE_TTS_VOICE", "Vindemiatrix")
 GEMINI_TTS_MODEL = os.environ.get("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts")
 
 # TTS pe PC (pyttsx3). Implicit oprit: doar MQTT speak -> difuzor ESP. Pune TRISENSE_TTS_PC=1 pentru voce si pe laptop.

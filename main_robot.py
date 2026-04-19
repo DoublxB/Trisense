@@ -84,8 +84,8 @@ _TTS_STREAM_CHUNK_BYTES = 2048
 _TTS_STEREO_WORK = bytearray(2048 * 4)
 # Sub ~0.85 * full scale: mai putin clip / „bazait” de distorsiune; creste daca e prea incet
 _TTS_GAIN_Q15 = 23000
-# Voci Gemini TTS: Kore=Firm (sec); Sulafat=Warm, Achird=Friendly — mai putin „robot”
-_GEMINI_TTS_VOICE = "Sulafat"
+# Voci Gemini TTS: Sulafat=Warm, Achird=Friendly, Vindemiatrix=Gentle (calm, copii cu autism)
+_GEMINI_TTS_VOICE = "Vindemiatrix"
 # Limita stricta pe ESP: mesaj scurt = raspuns audio mic/stabil.
 _GEMINI_TTS_MAX_CHARS = 48
 # Din MQTT acceptam putin mai mult, dar tot limitat pentru stabilitate.
@@ -326,10 +326,13 @@ def tri_speak_gemini(text, pr_sensor=None):
             tok = _GEMINI_TTS_FALLBACK_TOKENS
             print("TTS: retry with shorter response target.")
 
-        # Prompt strict: modelul nu trebuie sa adauge continut (altfel poate genera audio urias).
+        # Prompt strict + indicatii de stil (Gemini TTS suporta directii naturale).
+        # Stil: calm, lent, prietenos — potrivit pentru copii cu autism.
         prompt = (
-            "Speak exactly this sentence in English. "
-            "Do not add, explain, or continue. Text: " + speak_text
+            "Say this in English in a calm, gentle, soft voice. "
+            "Speak slowly and clearly, with a warm and reassuring tone, "
+            "as if talking kindly to a young child. "
+            "Do not add, explain, shorten or continue. Text: " + speak_text
         )
         body = {
             "contents": [{"parts": [{"text": prompt}]}],
@@ -340,7 +343,7 @@ def tri_speak_gemini(text, pr_sensor=None):
                         "prebuiltVoiceConfig": {"voiceName": _GEMINI_TTS_VOICE},
                     }
                 },
-                "temperature": 0.90,
+                "temperature": 0.55,
                 "maxOutputTokens": tok,
             },
         }

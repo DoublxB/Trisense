@@ -157,7 +157,7 @@ class TriSenseAI:
         if not self._client or not text.strip():
             return b"", 24000
         model = (os.getenv("GEMINI_TTS_MODEL") or GEMINI_TTS_MODEL).strip() or GEMINI_TTS_MODEL
-        voice_name = (voice or os.getenv("TRISENSE_TTS_VOICE") or TRISENSE_TTS_VOICE).strip() or "Sulafat"
+        voice_name = (voice or os.getenv("TRISENSE_TTS_VOICE") or TRISENSE_TTS_VOICE).strip() or "Vindemiatrix"
         base_text = (text or "").strip()
         max_tokens_cfg = max(
             512,
@@ -188,10 +188,12 @@ class TriSenseAI:
                 )
 
             prompt = (
-                "Speak exactly this sentence in English with a warm natural tone. "
+                "Say this in English in a calm, gentle, soft voice. "
+                "Speak slowly and clearly, with a warm and reassuring tone, "
+                "as if talking kindly to a young child. "
                 "Do not shorten or add words. Text: " + base_text
             )
-            response = _request_tts(prompt, 0.35, max_tokens_cfg)
+            response = _request_tts(prompt, 0.25, max_tokens_cfg)
             pcm, sr = _extract_tts_pcm_from_response(response)
             fr = _tts_finish_reason(response)
             if pcm:
