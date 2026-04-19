@@ -1,4 +1,4 @@
-from machine import Pin, SoftI2C, I2S
+﻿from machine import Pin, SoftI2C, I2S
 from pupremote import PUPRemoteSensor
 from pyhuskylens import HuskyLens, ALGORITHM_OBJECT_CLASSIFICATION
 import asyncio
@@ -82,8 +82,8 @@ _audio_play_srv_ok = False
 # Mono 2048 B ≈ 43 ms @ 24 kHz — LPF2 (hub) tolera ~40 ms intre pr.process()
 _TTS_STREAM_CHUNK_BYTES = 2048
 _TTS_STEREO_WORK = bytearray(2048 * 4)
-# Sub ~0.85 * full scale: mai putin clip / „bazait” de distorsiune; creste daca e prea incet
-_TTS_GAIN_Q15 = 23000
+# ~58% full scale: reduce clipping si crackling fara a pierde claritatea vocii
+_TTS_GAIN_Q15 = 19000
 # Voci Gemini TTS: Sulafat=Warm, Achird=Friendly, Vindemiatrix=Gentle (calm, copii cu autism)
 _GEMINI_TTS_VOICE = "Vindemiatrix"
 # Limita stricta pe ESP: pana la ~80 caractere = ~5s audio (incape in RAM/HTTP body).
