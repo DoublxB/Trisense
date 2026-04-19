@@ -292,7 +292,7 @@ class TriSenseBrain:
             logger.info("Memory: child = %s", name)
 
         self.state = RobotState.SELECTIE_JOC
-        greet = "I am TriSense and I want us to become friends."
+        greet = "Hi! I am TriSense. Let's play!"
         self._announce(greet, retain_speak_topic=True)
 
         q = self.mqtt.vision_queue
