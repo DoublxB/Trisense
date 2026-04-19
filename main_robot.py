@@ -1,4 +1,4 @@
-﻿from machine import Pin, SoftI2C, I2S
+from machine import Pin, SoftI2C, I2S
 from pupremote import PUPRemoteSensor
 from pyhuskylens import HuskyLens, ALGORITHM_OBJECT_CLASSIFICATION
 import asyncio
