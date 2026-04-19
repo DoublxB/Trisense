@@ -86,16 +86,16 @@ _TTS_STEREO_WORK = bytearray(2048 * 4)
 _TTS_GAIN_Q15 = 23000
 # Voci Gemini TTS: Sulafat=Warm, Achird=Friendly, Vindemiatrix=Gentle (calm, copii cu autism)
 _GEMINI_TTS_VOICE = "Vindemiatrix"
-# Limita stricta pe ESP: mesaj scurt = raspuns audio mic/stabil.
-_GEMINI_TTS_MAX_CHARS = 48
+# Limita stricta pe ESP: pana la ~80 caractere = ~5s audio (incape in RAM/HTTP body).
+_GEMINI_TTS_MAX_CHARS = 80
 # Din MQTT acceptam putin mai mult, dar tot limitat pentru stabilitate.
-_GEMINI_TTS_TOTAL_MAX_CHARS = 120
-# Cerere initiala + fallback agresiv daca request-ul cade pe memorie
-_GEMINI_TTS_MAX_TOKENS = 64
-_GEMINI_TTS_FALLBACK_CHARS = 32
-_GEMINI_TTS_FALLBACK_TOKENS = 32
+_GEMINI_TTS_TOTAL_MAX_CHARS = 140
+# Cerere initiala (~5s audio); fallback un pic mai scurt daca request cade pe memorie
+_GEMINI_TTS_MAX_TOKENS = 320
+_GEMINI_TTS_FALLBACK_CHARS = 56
+_GEMINI_TTS_FALLBACK_TOKENS = 192
 # Daca API raspunde cu body foarte mare, retry automat cu target mai scurt.
-_GEMINI_TTS_MAX_HTTP_BODY = 220000
+_GEMINI_TTS_MAX_HTTP_BODY = 280000
 # JSON mare: json.loads + dict Python dubleaza RAM (~600KB+) -> OOM pe ESP32
 _JSON_STREAM_THRESHOLD = 180000
 # Primul pas base64 mic = mai putin PCM de decodat inainte de primul sunet (mai mic lag)
