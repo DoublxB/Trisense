@@ -8,8 +8,8 @@ Prenumite:
   - ESP: main_robot.py + secrets.py cu PC_VOICE_IP (optional daca treci IP-ul mai jos).
 
 Exemplu:
-  py mqtt_voice_listen_test.py 192.168.1.50
-  py mqtt_voice_listen_test.py   # foloseste PC_VOICE_IP din .env
+  py testare/mqtt_voice_listen_test.py 192.168.1.50
+  py testare/mqtt_voice_listen_test.py   # foloseste PC_VOICE_IP din .env
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from pathlib import Path
 try:
     from dotenv import load_dotenv
 
-    load_dotenv(Path(__file__).resolve().parent / ".env")
+    load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 except ImportError:
     pass
 
@@ -38,7 +38,7 @@ def main() -> None:
     if not host:
         host = (os.environ.get("PC_VOICE_IP") or "").strip()
     if not host:
-        print("Folosire: py mqtt_voice_listen_test.py <IP_PC>")
+        print("Folosire: py testare/mqtt_voice_listen_test.py <IP_PC>")
         print("sau seteaza PC_VOICE_IP in .env")
         sys.exit(1)
     vport = int(os.environ.get("VOICE_TCP_PORT", "8765"))
