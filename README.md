@@ -207,6 +207,7 @@ Interpretare rapida:
 | `run_voice_dialog.py` | Entrypoint pentru creierul PC cu server TCP de voce |
 | `secrets.example.py` | Exemplu de secrete pentru ESP32 |
 | `testare/` | Folder cu scripturi de test (audio, MQTT, microfon laptop) |
+| `testare/README.md` | Ghid rapid pentru rularea tuturor scripturilor de test |
 | `testare/mqtt_speak_test.py` | Utilitar de test pentru comenzi MQTT de tip `speak` |
 | `testare/mqtt_voice_listen_test.py` | Utilitar de test pentru comanda MQTT `listen` (voce) |
 | `testare/test_i2s_beep.py` | Test audio I2S (difuzor) pe ESP32 |
