@@ -187,12 +187,7 @@ class TriSenseAI:
                     ),
                 )
 
-            prompt = (
-                "Say this in English in a calm, gentle, soft voice. "
-                "Speak slowly and clearly, with a warm and reassuring tone, "
-                "as if talking kindly to a young child. "
-                "Do not shorten or add words. Text: " + base_text
-            )
+            prompt = base_text
             response = _request_tts(prompt, 0.25, max_tokens_cfg)
             pcm, sr = _extract_tts_pcm_from_response(response)
             fr = _tts_finish_reason(response)
@@ -211,28 +206,6 @@ class TriSenseAI:
                         "TCP reușește. Cauze uzuale: truncare API, MAX_TOKENS audio, sau model ocupat — "
                         "verifica finish_reason si GEMINI_TTS_MAX_OUTPUT_TOKENS."
                     )
-                    retry_prompt = (
-                        "Read this exact text clearly and completely in one sentence. "
-                        "Do not truncate. Text: " + base_text
-                    )
-                    response2 = _request_tts(
-                        retry_prompt,
-                        0.0,
-                        min(32768, max_tokens_cfg * 2),
-                    )
-                    pcm2, sr2 = _extract_tts_pcm_from_response(response2)
-                    fr2 = _tts_finish_reason(response2)
-                    if pcm2:
-                        dur2 = len(pcm2) / (2 * max(1, sr2))
-                        logger.info(
-                            "Gemini TTS retry: PCM %d B mono @ %d Hz (~%.2f s), finish_reason=%s",
-                            len(pcm2),
-                            sr2,
-                            dur2,
-                            fr2,
-                        )
-                        if dur2 > dur_s:
-                            return pcm2, sr2
             else:
                 logger.warning("Gemini TTS: niciun PCM in raspuns (finish_reason=%s).", fr)
             return pcm, sr
@@ -322,10 +295,25 @@ def _extract_tts_pcm_from_response(response: object) -> tuple[bytes, int]:
         if not data:
             continue
         mime = str(getattr(inline, "mime_type", None) or getattr(inline, "mimeType", "") or "")
-        try:
-            raw = base64.b64decode(data)
-        except Exception:
+        raw = b""
+        if isinstance(data, (bytes, bytearray, memoryview)):
+            raw = bytes(data)
+        elif isinstance(data, str):
+            try:
+                raw = base64.b64decode(data)
+            except Exception:
+                raw = b""
+        if not raw or len(raw) < 200:
             continue
+        if raw[:4] != b"RIFF":
+            try:
+                head = raw[:64].decode("ascii")
+                if all(c.isalnum() or c in "+/=\n\r" for c in head):
+                    decoded = base64.b64decode(raw)
+                    if decoded and len(decoded) > 200:
+                        raw = decoded
+            except Exception:
+                pass
         if raw[:4] == b"RIFF":
             pcm, sr = _extract_wav_pcm_mono(raw)
             if pcm:

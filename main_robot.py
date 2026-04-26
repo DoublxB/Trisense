@@ -17,7 +17,7 @@ print("=== TriSense ESP32 START ===")
 AUDIO_ENABLED = True
 I2S_BCLK, I2S_LRC, I2S_DIN = 14, 15, 26
 AMP_ENABLE_PIN = 32
-# Microfon I2S (INMP441): SD pe GPIO 33 — acelasi BCLK/LRC ca difuzorul (vezi test_mic_difuzor.py).
+# Microfon I2S (INMP441): SD pe GPIO 33 — acelasi BCLK/LRC ca difuzorul (vezi testare/test_mic_difuzor.py).
 MIC_I2S_SD = 33
 MIC_RATE = 16000
 VOICE_TCP_PORT_DEFAULT = 8765
@@ -86,16 +86,16 @@ _TTS_STEREO_WORK = bytearray(2048 * 4)
 _TTS_GAIN_Q15 = 19000
 # Voci Gemini TTS: Sulafat=Warm (natural), Achird=Friendly, Vindemiatrix=Gentle
 _GEMINI_TTS_VOICE = "Sulafat"
-# Limita stricta pe ESP: pana la ~80 caractere = ~5s audio (incape in RAM/HTTP body).
-_GEMINI_TTS_MAX_CHARS = 48
+# Limita stricta pe ESP: raspunsuri foarte scurte ca sa ramana stabil in RAM.
+_GEMINI_TTS_MAX_CHARS = 32
 # Din MQTT acceptam putin mai mult, dar tot limitat pentru stabilitate.
 _GEMINI_TTS_TOTAL_MAX_CHARS = 120
 # Cerere initiala (~5s audio); fallback un pic mai scurt daca request cade pe memorie
-_GEMINI_TTS_MAX_TOKENS = 320
+_GEMINI_TTS_MAX_TOKENS = 140
 _GEMINI_TTS_FALLBACK_CHARS = 32
 _GEMINI_TTS_FALLBACK_TOKENS = 120
 # Daca API raspunde cu body foarte mare, retry automat cu target mai scurt.
-_GEMINI_TTS_MAX_HTTP_BODY = 280000
+_GEMINI_TTS_MAX_HTTP_BODY = 120000
 # JSON mare: json.loads + dict Python dubleaza RAM (~600KB+) -> OOM pe ESP32
 _JSON_STREAM_THRESHOLD = 180000
 # Primul pas base64 mic = mai putin PCM de decodat inainte de primul sunet (mai mic lag)
@@ -748,12 +748,17 @@ def _play_pcm_stream_from_conn(conn, sample_rate, total_len, pr_sensor=None):
     time.sleep_ms(2)
     audio = None
     try:
-        # Mic prebuffer to absorb Wi-Fi jitter before first write.
-        pre_target = min(16384, total_len)
+        try:
+            import gc
+
+            gc.collect()
+        except Exception:
+            pass
+        pre_target = min(8192, total_len)
         pre = bytearray()
         while len(pre) < pre_target:
             try:
-                chunk0 = conn.recv(min(4096, pre_target - len(pre)))
+                chunk0 = conn.recv(min(2048, pre_target - len(pre)))
             except Exception:
                 chunk0 = None
             if not chunk0:
@@ -764,17 +769,33 @@ def _play_pcm_stream_from_conn(conn, sample_rate, total_len, pr_sensor=None):
                     pr_sensor.process()
                 except Exception:
                     pass
-        audio = I2S(
-            0,
-            sck=Pin(I2S_BCLK),
-            ws=Pin(I2S_LRC),
-            sd=Pin(I2S_DIN),
-            mode=I2S.TX,
-            bits=16,
-            format=I2S.STEREO,
-            rate=sample_rate,
-            ibuf=65520,
-        )
+        audio = None
+        last_err = None
+        for ibuf_try in (32768, 16384, 8192):
+            try:
+                audio = I2S(
+                    0,
+                    sck=Pin(I2S_BCLK),
+                    ws=Pin(I2S_LRC),
+                    sd=Pin(I2S_DIN),
+                    mode=I2S.TX,
+                    bits=16,
+                    format=I2S.STEREO,
+                    rate=sample_rate,
+                    ibuf=ibuf_try,
+                )
+                break
+            except Exception as e:
+                last_err = e
+                try:
+                    import gc
+
+                    gc.collect()
+                except Exception:
+                    pass
+        if audio is None:
+            print("Audio TCP: I2S init esuat (RAM):", last_err)
+            return False
         got = 0
         carry = b""
         chunk_count = 0
@@ -863,7 +884,7 @@ def tri_accept_play_tcp_once(pr_sensor=None):
 # ==========================================
 WIFI_SSID = "Orange-292q-2.4G"
 WIFI_PASS = "Y8kCA4vx"
-MQTT_BROKER = "broker.hivemq.com"
+MQTT_BROKER = "192.168.100.134"
 CLIENT_ID = "TriSense_Licenta_Robot"
 TOPIC_VISION_TAGS = b"vision/tags"
 TOPIC_ROBOT_CONTROL = b"robot/control"
@@ -903,6 +924,99 @@ wlan = network.WLAN(network.STA_IF)
 wlan.active(True)
 time.sleep_ms(300)
 mqtt = None
+MQTT_RETRY_MS = 5000
+_last_mqtt_retry_ms = time.ticks_ms()
+
+
+def _mqtt_control_cb(topic, msg):
+    global pending_speak, pending_voice_tcp, _last_mqtt_speak_ts, _last_mqtt_speak_txt
+    global _last_mqtt_speak_topic
+    try:
+        tnm = topic.decode() if isinstance(topic, (bytes, bytearray)) else str(topic)
+        print(">>> MQTT", tnm + ":", msg.decode())
+    except Exception:
+        print(">>> MQTT topic raw:", topic, msg)
+    try:
+        if isinstance(msg, (bytes, bytearray)):
+            msg = msg.decode("utf-8")
+        msg = msg.strip()
+        if not msg:
+            return
+        try:
+            o = json.loads(msg)
+        except ValueError:
+            # Text simplu (ex. "HI" din MQTT Explorer) — nu e JSON
+            print("MQTT robot/control: ignorat (nu e JSON valid)")
+            return
+        if not isinstance(o, dict):
+            print("MQTT control err: JSON valid dar nu e obiect (tip", type(o), ")")
+            return
+        sp = o.get("speak")
+        if sp and isinstance(sp, str) and sp.strip():
+            t = sp.strip()[:_GEMINI_TTS_TOTAL_MAX_CHARS]
+            now = time.ticks_ms()
+            # Acelasi text pe *alt* topic (ex. retained robot/speak + robot/control) nu e duplicat.
+            if (
+                t == _last_mqtt_speak_txt
+                and tnm == _last_mqtt_speak_topic
+                and time.ticks_diff(now, _last_mqtt_speak_ts) < 2000
+            ):
+                print(">>> speak MQTT: ignor (acelasi topic + text <2s)")
+            else:
+                _last_mqtt_speak_txt = t
+                _last_mqtt_speak_ts = now
+                _last_mqtt_speak_topic = tnm
+                pending_speak = t
+                print(">>> speak MQTT coada:", t[:72] + ("..." if len(t) > 72 else ""))
+        # PC trimite JSON true; unele JSON-uri pot da int 1 sau string
+        listen = o.get("listen")
+        listen_on = listen is True or listen == 1 or listen == "true"
+        if listen_on:
+            host = (o.get("pc_host") or o.get("pc_ip") or "").strip()
+            if not host:
+                try:
+                    from secrets import PC_VOICE_IP as _pv
+
+                    host = (_pv or "").strip() if isinstance(_pv, str) else ""
+                except ImportError:
+                    host = ""
+            try:
+                vport = int(o.get("voice_port") or VOICE_TCP_PORT_DEFAULT)
+            except (TypeError, ValueError):
+                vport = VOICE_TCP_PORT_DEFAULT
+            try:
+                dur = int(o.get("duration_ms") or VOICE_RECORD_MS_DEFAULT)
+            except (TypeError, ValueError):
+                dur = VOICE_RECORD_MS_DEFAULT
+            if host and 200 <= dur <= 12000:
+                pending_voice_tcp = {
+                    "host": host,
+                    "port": vport,
+                    "duration_ms": dur,
+                }
+            elif listen_on:
+                print("Voce: lipseste pc_host/pc_ip sau PC_VOICE_IP in secrets.py")
+    except Exception as e:
+        print("MQTT control err:", e)
+
+
+def _mqtt_connect(pr_sensor):
+    global mqtt, _last_mqtt_retry_ms
+    _last_mqtt_retry_ms = time.ticks_ms()
+    try:
+        mqtt = MQTTClient(CLIENT_ID, MQTT_BROKER)
+        mqtt.connect()
+        if pr_sensor is not None:
+            _spin_hub(pr_sensor, 50)
+        mqtt.set_callback(_mqtt_control_cb)
+        mqtt.subscribe(TOPIC_ROBOT_CONTROL)
+        mqtt.subscribe(TOPIC_ROBOT_SPEAK)
+        print(">>> MQTT CONECTAT la broker", MQTT_BROKER, "(vision/tags + robot/control + robot/speak)")
+        return True
+    except Exception as e:
+        print("Eroare MQTT:", e)
+        mqtt = None
+        return False
 
 if not wlan.isconnected():
     print("Se conecteaza la WiFi: " + WIFI_SSID + " ...")
@@ -928,91 +1042,7 @@ if wlan.isconnected():
     if not GEMINI_API_KEY:
         print(">>> Voce robot: seteaza GEMINI_API_KEY in secrets.py pe ESP (aceeasi cheie ca pe PC).")
     _spin_hub(pr, 50)
-    try:
-        mqtt = MQTTClient(CLIENT_ID, MQTT_BROKER)
-        mqtt.connect()
-        _spin_hub(pr, 50)
-
-        def _mqtt_control_cb(topic, msg):
-            global pending_speak, pending_voice_tcp, _last_mqtt_speak_ts, _last_mqtt_speak_txt
-            global _last_mqtt_speak_topic
-            try:
-                tnm = topic.decode() if isinstance(topic, (bytes, bytearray)) else str(topic)
-                print(">>> MQTT", tnm + ":", msg.decode())
-            except Exception:
-                print(">>> MQTT topic raw:", topic, msg)
-            try:
-                if isinstance(msg, (bytes, bytearray)):
-                    msg = msg.decode("utf-8")
-                msg = msg.strip()
-                if not msg:
-                    return
-                try:
-                    o = json.loads(msg)
-                except ValueError:
-                    # Text simplu (ex. "HI" din MQTT Explorer) — nu e JSON
-                    print("MQTT robot/control: ignorat (nu e JSON valid)")
-                    return
-                if not isinstance(o, dict):
-                    print("MQTT control err: JSON valid dar nu e obiect (tip", type(o), ")")
-                    return
-                sp = o.get("speak")
-                if sp and isinstance(sp, str) and sp.strip():
-                    t = sp.strip()[:_GEMINI_TTS_TOTAL_MAX_CHARS]
-                    now = time.ticks_ms()
-                    # Acelasi text pe *alt* topic (ex. retained robot/speak + robot/control) nu e duplicat.
-                    if (
-                        t == _last_mqtt_speak_txt
-                        and tnm == _last_mqtt_speak_topic
-                        and time.ticks_diff(now, _last_mqtt_speak_ts) < 2000
-                    ):
-                        print(">>> speak MQTT: ignor (acelasi topic + text <2s)")
-                    else:
-                        _last_mqtt_speak_txt = t
-                        _last_mqtt_speak_ts = now
-                        _last_mqtt_speak_topic = tnm
-                        pending_speak = t
-                        print(">>> speak MQTT coada:", t[:72] + ("..." if len(t) > 72 else ""))
-                # PC trimite JSON true; unele JSON-uri pot da int 1 sau string
-                listen = o.get("listen")
-                listen_on = listen is True or listen == 1 or listen == "true"
-                if listen_on:
-                    host = (o.get("pc_host") or o.get("pc_ip") or "").strip()
-                    if not host:
-                        try:
-                            from secrets import PC_VOICE_IP as _pv
-
-                            host = (_pv or "").strip() if isinstance(_pv, str) else ""
-                        except ImportError:
-                            host = ""
-                    try:
-                        vport = int(o.get("voice_port") or VOICE_TCP_PORT_DEFAULT)
-                    except (TypeError, ValueError):
-                        vport = VOICE_TCP_PORT_DEFAULT
-                    try:
-                        dur = int(o.get("duration_ms") or VOICE_RECORD_MS_DEFAULT)
-                    except (TypeError, ValueError):
-                        dur = VOICE_RECORD_MS_DEFAULT
-                    if host and 200 <= dur <= 12000:
-                        pending_voice_tcp = {
-                            "host": host,
-                            "port": vport,
-                            "duration_ms": dur,
-                        }
-                    elif listen_on:
-                        print("Voce: lipseste pc_host/pc_ip sau PC_VOICE_IP in secrets.py")
-            except Exception as e:
-                print("MQTT control err:", e)
-
-        mqtt.set_callback(_mqtt_control_cb)
-        mqtt.subscribe(TOPIC_ROBOT_CONTROL)
-        mqtt.subscribe(TOPIC_ROBOT_SPEAK)
-        print(
-            ">>> MQTT CONECTAT la HiveMQ! (publish vision/tags; subscribe robot/control + robot/speak)"
-        )
-    except Exception as e:
-        print("Eroare MQTT:", e)
-        mqtt = None
+    _mqtt_connect(pr)
 else:
     try:
         st = wlan.status()
@@ -1031,14 +1061,22 @@ else:
 
 def _robot_loop_body(connected, tts_pr_sensor, end_delay_ms):
     """O iteratie: MQTT, voce, hub debug, HuskyLens, update canal. tts_pr_sensor=None daca heartbeat e async."""
-    global pending_speak, pending_voice_tcp, last_hub_connected, hub_fail_cycles, t_last_hub_print
-    global timp_start, huskylens_pornit, hl, ultimul_timp_mqtt
+    global mqtt, pending_speak, pending_voice_tcp, last_hub_connected, hub_fail_cycles, t_last_hub_print
+    global timp_start, huskylens_pornit, hl, ultimul_timp_mqtt, _last_mqtt_retry_ms
 
     if mqtt:
         try:
             mqtt.check_msg()
-        except Exception:
-            pass
+        except Exception as e:
+            print("MQTT check err:", e)
+            try:
+                mqtt.disconnect()
+            except Exception:
+                pass
+            mqtt = None
+    elif wlan.isconnected() and time.ticks_diff(time.ticks_ms(), _last_mqtt_retry_ms) > MQTT_RETRY_MS:
+        print("MQTT reconnect attempt...")
+        _mqtt_connect(tts_pr_sensor)
 
     if wlan.isconnected():
         tri_accept_play_tcp_once(tts_pr_sensor)
@@ -1153,4 +1191,4 @@ if hasattr(pr, "process_async"):
     except AttributeError:
         asyncio.get_event_loop().run_until_complete(_robot_main_async())
 else:
-    _robot_main_sync
+    _robot_main_sync()

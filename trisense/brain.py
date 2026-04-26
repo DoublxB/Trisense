@@ -73,10 +73,30 @@ class TriSenseBrain:
         msg = (text or "").strip()
         if len(msg) > ESP_SPEAK_MAX_CHARS:
             msg = msg[: max(0, ESP_SPEAK_MAX_CHARS - 3)] + "..."
+        tcp_attempted = False
         if msg and TRISENSE_TTS_OVER_TCP:
             target_ip = (esp_ip or self._last_esp_ip or "").strip()
             if target_ip:
-                pcm, sample_rate = self.ai.synthesize_tts_pcm(msg)
+                tcp_attempted = True
+                prefer_gemini = (
+                    (os.environ.get("TRISENSE_TTS_PREFER_GEMINI") or "0").strip().lower()
+                    in ("1", "true", "yes")
+                )
+                pcm: bytes = b""
+                sample_rate: int = 24000
+                if not prefer_gemini and self.tts.available:
+                    pcm, sample_rate = self.tts.synthesize_pcm(msg)
+                    if pcm:
+                        logger.info(
+                            "TTS local pyttsx3: PCM %d B @ %d Hz (~%.2f s).",
+                            len(pcm),
+                            sample_rate,
+                            len(pcm) / (2 * max(1, sample_rate)),
+                        )
+                    else:
+                        logger.info("TTS local pyttsx3 indisponibil sau gol; trec pe Gemini TTS.")
+                if not pcm:
+                    pcm, sample_rate = self.ai.synthesize_tts_pcm(msg)
                 if pcm:
                     dur_ms = int(1000 * len(pcm) / (2 * max(1, sample_rate)))
                     ok_audio = send_pcm_to_esp(target_ip, ESP_AUDIO_TCP_PORT, pcm, sample_rate)
@@ -102,6 +122,8 @@ class TriSenseBrain:
                 logger.info("Audio TCP preferred, but robot IP is not known yet; skipping local ESP TTS fallback.")
                 return False
         if msg:
+            if tcp_attempted:
+                logger.info("Fallback MQTT speak dupa esec/PCM scurt pe Audio TCP.")
             ok = self._publish({"speak": msg})
             if not ok:
                 time.sleep(1.5)
@@ -292,8 +314,8 @@ class TriSenseBrain:
             logger.info("Memory: child = %s", name)
 
         self.state = RobotState.SELECTIE_JOC
-        greet = "Hi! I am TriSense. Let's play!"
-        self._announce(greet, retain_speak_topic=True)
+        greet = "Hi! I am TriSense."
+        self._announce(greet, retain_speak_topic=False)
 
         q = self.mqtt.vision_queue
         while True:

@@ -9,15 +9,23 @@ Rulare:
 from __future__ import annotations
 
 import io
+import logging
 import os
+import sys
 import wave
 from pathlib import Path
 
 import sounddevice as sd
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+
 try:
     from dotenv import load_dotenv
-    load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=True)
+    load_dotenv(PROJECT_ROOT / ".env", override=True)
 except ImportError:
     pass
 
@@ -73,8 +81,18 @@ def main() -> None:
     print("[LLM+TTS] Generez raspuns si trimit audio la ESP prin TCP...")
     # robot_only=True: nu incearca pyttsx3 pe PC (nu vrem sunet pe laptop)
     # esp_ip: trimite PCM direct la difuzorul ESP pe portul 8766
-    brain.handle_voice_transcript(transcript, robot_only=True, esp_ip=esp_ip)
-    print("[DONE] Flux complet: STT -> LLM -> TTS PC -> PCM TCP -> difuzor ESP.")
+    text = brain.ai.reply(
+        f"The child said this through the microphone (transcript): {transcript}. "
+        "Reply very briefly, friendly, in English, as TriSense.",
+        brain.memory.get_child_name() or "friend",
+    )
+    text = (text or "").strip().strip("\"'")
+    print(f"[LLM] Raspuns TriSense: '{text}'")
+    delivered = brain._announce(text, robot_only=True, esp_ip=esp_ip)
+    if delivered:
+        print("[DONE] Raspuns livrat: TCP audio sau fallback MQTT speak.")
+    else:
+        print("[FAIL] Raspuns generat, dar nu a fost livrat catre robot.")
 
 
 if __name__ == "__main__":
