@@ -738,11 +738,28 @@ def _recv_exact(conn, n, pr_sensor=None):
 
 
 def _play_pcm_stream_from_conn(conn, sample_rate, total_len, pr_sensor=None):
-    """Citeste PCM stereo din socket si reda incremental (fara conversie grea pe ESP)."""
+    """Citeste PCM stereo din socket si reda incremental (fara conversie grea pe ESP).
+
+    Mentine LPF2 viu in timpul redarii: foloseste pr_sensor primit, sau cade pe
+    instanta globala `pr` daca apelantul nu o paseaza (cazul async).
+    Hub-ul tolereaza ~40 ms intre heartbeat-uri, deci ticaim la fiecare chunk.
+    """
     if sample_rate < 8000 or sample_rate > 48000:
         sample_rate = 24000
     if total_len < 4 or total_len > 2000000:
         return False
+
+    # In async mode, _robot_loop_body trimite pr_sensor=None pentru ca process_async ruleaza
+    # ca task. Dar cat timp redarea I2S blocheaza CPU, taskul async nu apuca sa ticaie. Deci
+    # forteaza tick manual pe instanta globala.
+    tick_target = pr_sensor if pr_sensor is not None else pr
+
+    def _tick():
+        try:
+            tick_target.process()
+        except Exception:
+            pass
+
     en = Pin(AMP_ENABLE_PIN, Pin.OUT)
     en.value(1)
     time.sleep_ms(2)
@@ -764,11 +781,7 @@ def _play_pcm_stream_from_conn(conn, sample_rate, total_len, pr_sensor=None):
             if not chunk0:
                 break
             pre.extend(chunk0)
-            if pr_sensor is not None:
-                try:
-                    pr_sensor.process()
-                except Exception:
-                    pass
+            _tick()
         audio = None
         last_err = None
         for ibuf_try in (32768, 16384, 8192):
@@ -793,22 +806,30 @@ def _play_pcm_stream_from_conn(conn, sample_rate, total_len, pr_sensor=None):
                     gc.collect()
                 except Exception:
                     pass
+            _tick()
         if audio is None:
             print("Audio TCP: I2S init esuat (RAM):", last_err)
             return False
         got = 0
         carry = b""
-        chunk_count = 0
+        # Chunk mic = blocaj scurt pe I2S.write, deci heartbeat-ul prinde ~30 ms.
+        # 1024 B stereo PCM16 @ 24 kHz ~= 10.6 ms; lasa loc pentru pr.process().
+        I2S_WRITE_CHUNK = 1024
         if pre:
             got = len(pre)
             rem = len(pre) % 4
             if rem:
                 carry = bytes(pre[-rem:])
                 pre = pre[:-rem]
-            if pre:
-                audio.write(pre)
+            mv = memoryview(pre)
+            off = 0
+            while off < len(mv):
+                end = min(off + I2S_WRITE_CHUNK, len(mv))
+                audio.write(mv[off:end])
+                off = end
+                _tick()
         while got < total_len:
-            need = min(4096, total_len - got)
+            need = min(2048, total_len - got)
             try:
                 chunk = conn.recv(need)
             except Exception:
@@ -819,21 +840,21 @@ def _play_pcm_stream_from_conn(conn, sample_rate, total_len, pr_sensor=None):
             if carry:
                 chunk = carry + chunk
                 carry = b""
-            # Stereo PCM16: multiplu de 4 bytes.
             rem = len(chunk) % 4
             if rem:
                 carry = chunk[-rem:]
                 chunk = chunk[:-rem]
             if chunk:
-                audio.write(chunk)
-            chunk_count += 1
-            if pr_sensor is not None and (chunk_count & 3) == 0:
-                try:
-                    pr_sensor.process()
-                except Exception:
-                    pass
+                mv = memoryview(chunk)
+                off = 0
+                while off < len(mv):
+                    end = min(off + I2S_WRITE_CHUNK, len(mv))
+                    audio.write(mv[off:end])
+                    off = end
+                    _tick()
+            else:
+                _tick()
         if carry:
-            # ignora ultimul byte incomplet, evita zgomot
             carry = b""
         return got >= max(2, total_len - 2)
     finally:
@@ -903,7 +924,14 @@ def _spin_hub(pr_sensor, count=40):
 # ==========================================
 pr = PUPRemoteSensor(power=True)
 pr.add_channel("obj", to_hub_fmt="b")
+# Canal dedicat comenzilor de actiune trimise hub-ului LEGO (0=idle, 1=dance, 2+=rezervat).
+pr.add_channel("cmd", to_hub_fmt="b")
 print("Comunicare LPF2 activata. Astept Hub-ul...")
+
+# Comanda activa spre hub (resetata la 0 dupa _CMD_HOLD_MS pentru ca hub-ul sa vada o tranzitie).
+_pending_cmd = 0
+_pending_cmd_until_ms = 0
+_CMD_HOLD_MS = 1500
 
 # ==========================================
 # 2. Camera + timere bucla
@@ -996,6 +1024,20 @@ def _mqtt_control_cb(topic, msg):
                 }
             elif listen_on:
                 print("Voce: lipseste pc_host/pc_ip sau PC_VOICE_IP in secrets.py")
+        # Actiuni motrice catre hub-ul LEGO. Acceptam "action" sau "cmd" ca numele cheii.
+        # PC-ul (brain.py) trimite {"action": "dance"} cand utilizatorul spune "dance".
+        action_raw = o.get("action") or o.get("cmd")
+        if isinstance(action_raw, str):
+            global _pending_cmd, _pending_cmd_until_ms
+            act = action_raw.strip().lower()
+            if act == "dance":
+                _pending_cmd = 1
+                _pending_cmd_until_ms = time.ticks_add(time.ticks_ms(), _CMD_HOLD_MS)
+                print(">>> ACTION dance -> cmd=1 catre hub LEGO")
+            elif act in ("stop", "idle", "none"):
+                _pending_cmd = 0
+                _pending_cmd_until_ms = 0
+                print(">>> ACTION stop -> cmd=0 catre hub LEGO")
     except Exception as e:
         print("MQTT control err:", e)
 
@@ -1160,6 +1202,12 @@ def _robot_loop_body(connected, tts_pr_sensor, end_delay_ms):
             time.sleep_ms(500)
 
         pr.update_channel("obj", obj)
+
+    global _pending_cmd, _pending_cmd_until_ms
+    if _pending_cmd != 0 and time.ticks_diff(time.ticks_ms(), _pending_cmd_until_ms) >= 0:
+        _pending_cmd = 0
+        _pending_cmd_until_ms = 0
+    pr.update_channel("cmd", _pending_cmd)
 
     time.sleep_ms(end_delay_ms)
 

@@ -150,6 +150,20 @@ class TriSenseBrain:
             return ok
         return True
 
+    def _detect_motor_action(self, transcript: str) -> Optional[str]:
+        """Mapeaza cuvinte cheie din transcript la o actiune motrice ce ajunge la hub LEGO.
+
+        Returneaza un identificator scurt ("dance", ...) sau None daca nu s-a recunoscut nimic.
+        Cautam cuvinte intregi ca sa nu confundam "dance" cu "advance".
+        """
+        if not transcript:
+            return None
+        normalized = "".join(ch.lower() if ch.isalnum() else " " for ch in transcript)
+        words = set(normalized.split())
+        if {"dance", "danseaza", "danseaz\u0103", "danseaz", "danseze"} & words:
+            return "dance"
+        return None
+
     def handle_voice_transcript(
         self,
         transcript: str,
@@ -167,6 +181,15 @@ class TriSenseBrain:
         if esp_ip:
             self._last_esp_ip = esp_ip
         name = self._child_name or self.memory.get_child_name() or "friend"
+
+        action = self._detect_motor_action(t)
+        if action == "dance":
+            sent = self._publish({"action": "dance"})
+            logger.info("Motor action 'dance' -> MQTT robot/control trimis=%s", sent)
+            text = f"Let's dance, {name}!"
+            self._announce(text, robot_only=robot_only, esp_ip=esp_ip)
+            return
+
         prompt = (
             f"The child said this through the microphone (transcript): {t}. "
             "Reply very briefly, friendly, in English, as TriSense."

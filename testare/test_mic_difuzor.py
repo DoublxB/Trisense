@@ -32,7 +32,7 @@ AMP_EN = 32
 # --- Microfon (INMP441 / compatibil I2S) — iesire date pe GPIO 33 ---
 MIC_SD = 33
 MIC_RATE = 16000
-MIC_BITS = 16
+MIC_BITS = 32
 
 
 def wifi_off():

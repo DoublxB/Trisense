@@ -78,21 +78,11 @@ def main() -> None:
         print("[STT] EROARE — nu am inteles nimic. Vorbeste mai tare.")
         return
 
-    print("[LLM+TTS] Generez raspuns si trimit audio la ESP prin TCP...")
-    # robot_only=True: nu incearca pyttsx3 pe PC (nu vrem sunet pe laptop)
-    # esp_ip: trimite PCM direct la difuzorul ESP pe portul 8766
-    text = brain.ai.reply(
-        f"The child said this through the microphone (transcript): {transcript}. "
-        "Reply very briefly, friendly, in English, as TriSense.",
-        brain.memory.get_child_name() or "friend",
-    )
-    text = (text or "").strip().strip("\"'")
-    print(f"[LLM] Raspuns TriSense: '{text}'")
-    delivered = brain._announce(text, robot_only=True, esp_ip=esp_ip)
-    if delivered:
-        print("[DONE] Raspuns livrat: TCP audio sau fallback MQTT speak.")
-    else:
-        print("[FAIL] Raspuns generat, dar nu a fost livrat catre robot.")
+    print("[LLM+TTS] Trimit transcriptul la creier (detectie dans + raspuns LLM)...")
+    # Folosim acelasi handler ca pentru voce de pe ESP32: detecteaza cuvinte cheie
+    # ("dance", etc.) -> publica MQTT {"action":"dance"} catre robot, apoi anunta verbal.
+    brain.handle_voice_transcript(transcript, robot_only=True, esp_ip=esp_ip)
+    print("[DONE] Raspuns trimis catre robot.")
 
 
 if __name__ == "__main__":
