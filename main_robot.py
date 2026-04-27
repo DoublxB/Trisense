@@ -275,6 +275,114 @@ def _play_mono_pcm_bytes(pcm, pr_sensor, audio):
             pr_sensor.process()
 
 
+def tri_play_greeting_pcm(pr_sensor=None, path="greeting.pcm"):
+    """
+    Salut la boot: PCM 16-bit mono din fisier pe flash (fara TTS Gemini).
+
+    Genereaza fisierul pe PC: py tools/gen_greeting_pcm.py
+    Pune pe ESP32: mpremote cp assets/greeting.pcm :greeting.pcm
+
+    Accepta si greeting.wav (RIFF/WAVE) in acelasi folder; altfel trateaza
+    fisierul ca raw s16le @ 24000 Hz mono.
+    """
+    if not AUDIO_ENABLED:
+        return
+
+    def _tick_hub():
+        tgt = pr_sensor if pr_sensor is not None else pr
+        try:
+            tgt.process()
+        except Exception:
+            pass
+
+    try:
+        f = open(path, "rb")
+    except OSError as e:
+        print(
+            ">>> Salut PCM: lipseste",
+            path,
+            "(" + str(e) + ") — genereaza cu py tools/gen_greeting_pcm.py si urca :greeting.pcm",
+        )
+        return
+
+    try:
+        head = f.read(12)
+        f.seek(0)
+        if len(head) >= 12 and head[0:4] == b"RIFF" and head[8:12] == b"WAVE":
+            data = f.read(300000)
+            f.close()
+            pcm, rate, ch = _parse_wav_or_raw_pcm(data)
+            del data
+        else:
+            data = f.read(300000)
+            f.close()
+            pcm = data
+            rate, ch = 24000, 1
+            del data
+    except Exception as e:
+        try:
+            f.close()
+        except Exception:
+            pass
+        print(">>> Salut PCM: citire esuata:", e)
+        return
+
+    try:
+        import gc
+
+        gc.collect()
+    except Exception:
+        pass
+
+    if len(pcm) < 4:
+        print(">>> Salut PCM: fisier prea scurt")
+        return
+    if ch == 2:
+        if len(pcm) % 4:
+            pcm = pcm[: (len(pcm) // 4) * 4]
+        n = len(pcm) // 4
+        mono = bytearray(n * 2)
+        for i in range(n):
+            L = struct.unpack_from("<h", pcm, i * 4)[0]
+            R = struct.unpack_from("<h", pcm, i * 4 + 2)[0]
+            struct.pack_into("<h", mono, i * 2, (L + R) // 2)
+        pcm = mono
+        ch = 1
+    elif len(pcm) % 2:
+        print(">>> Salut PCM: lungime impara (ignor ultimul octet)")
+        pcm = pcm[:-1]
+
+    print(">>> Salut PCM: redare", len(pcm), "B @", rate, "Hz mono (fara Gemini)")
+    try:
+        en = Pin(AMP_ENABLE_PIN, Pin.OUT)
+        en.value(1)
+        time.sleep_ms(2)
+        audio = I2S(
+            0,
+            sck=Pin(I2S_BCLK),
+            ws=Pin(I2S_LRC),
+            sd=Pin(I2S_DIN),
+            mode=I2S.TX,
+            bits=16,
+            format=I2S.STEREO,
+            rate=rate,
+            ibuf=65520,
+        )
+        _tick_hub()
+        _play_mono_pcm_bytes(pcm, pr_sensor, audio)
+        _tick_hub()
+        audio.deinit()
+        try:
+            import gc
+
+            gc.collect()
+        except Exception:
+            pass
+        print(">>> Salut PCM: terminat.")
+    except Exception as e:
+        print(">>> Salut PCM I2S err:", e)
+
+
 def tri_speak_gemini(text, pr_sensor=None):
     """
     Apel REST Gemini 2.5 Flash TTS; redare I2S. Blocheaza cateva secunde.
@@ -1085,6 +1193,11 @@ if wlan.isconnected():
         print(">>> Voce robot: seteaza GEMINI_API_KEY in secrets.py pe ESP (aceeasi cheie ca pe PC).")
     _spin_hub(pr, 50)
     _mqtt_connect(pr)
+    # Salut autonom: PCM din fisier (fara TTS Gemini la boot — stabil pe LPF2).
+    try:
+        tri_play_greeting_pcm(pr, "greeting.pcm")
+    except Exception as _e:
+        print(">>> Salut PCM esuat:", _e)
 else:
     try:
         st = wlan.status()
