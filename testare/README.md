@@ -9,6 +9,7 @@ Acest folder contine scripturile de test pentru hardware si comunicare.
 | `test_i2s_beep.py` | Test rapid difuzor I2S (MAX98357) |
 | `test_mic_difuzor.py` | Test difuzor + microfon I2S (INMP441) |
 | `mqtt_speak_test.py` | Trimite comanda MQTT `speak` catre robot |
+| `demo_speak_tcp.py` | TTS pe PC (pyttsx3) → PCM TCP la difuzor ESP (fara MQTT / Gemini pe ESP) |
 | `mqtt_voice_listen_test.py` | Trimite comanda MQTT `listen` pentru flux vocal TCP |
 | `test_laptop_mic.py` | Test local microfon laptop -> STT -> LLM -> TTS -> ESP |
 
