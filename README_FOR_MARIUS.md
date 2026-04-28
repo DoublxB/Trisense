@@ -4,6 +4,30 @@ Pași numerotați ca robotul să meargă și să poți testa cu **microfon de pe
 
 Presupun că proiectul este clonat pe PC și ai rulat `pip install -r requirements.txt`.
 
+### Pornire automată pe ESP (după `main_robot.py` → `main.py`)
+
+MicroPython pornește singur la alimentare **`boot.py`**, apoi **`main.py`** de pe flash-ul ESP. În repo, programul robotului este **`main_robot.py`**; pe placă trebuie copiat **sub numele `main.py`** ca să ruleze fără să dai Run manual.
+
+**Varianta A — `mpremote` (recomandat)**
+
+În **PowerShell / CMD**, din folderul proiectului (înlocuiești `COM7` cu portul ESP din Manager dispozitive):
+
+```powershell
+cd C:\Users\impact\Desktop\Licenta mea
+python -m mpremote connect COM7 cp main_robot.py :main.py
+python -m mpremote connect COM7 reset
+```
+
+Opțional, verifici ce e pe flash:
+
+```powershell
+python -m mpremote connect COM7 ls
+```
+
+`main.py` trebuie să existe și să aibă dimensiune mare (același cod ca `main_robot.py`).
+
+**Important:** fișierul **`main.py`** din rădăcina repo-ului este programul **Pybricks pentru hub LEGO** — **nu** se copiază pe ESP. Pe ESP **`main.py`** = conținutul lui **`main_robot.py`**.
+
 ---
 
 ### Pasul 1 — Pornești Mosquitto (broker MQTT) pe calculator
@@ -150,6 +174,7 @@ Atunci TriSense procesează vocea și poate trimite comanda către robot (MQTT /
 |-----|---------|
 | **1** | Mosquitto pornit (`mosquitto -v`) |
 | **2** | Schimbă în `main_robot.py`: Wi‑Fi + `MQTT_BROKER` = IPv4 laptop; în `.env`: același broker + la nevoie alte variabile pentru PC |
+| **2b** | `mpremote cp main_robot.py :main.py` apoi `reset` (ESP pornește singur — vezi secțiunea „Pornire automată”) |
 | **3** | `ipconfig` → notezi **IPv4** laptop pentru broker |
 | **4** | `python -m mpremote connect COM7` (sau alt COM) → notezi **IP robot** pentru `PC_VOICE_IP` în `.env` |
 | **5** | Handshake vizibil → scoți USB de la laptop → apeși **butonul hub** |
