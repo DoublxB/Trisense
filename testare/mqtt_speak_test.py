@@ -2,10 +2,10 @@
 """
 Trimite un mesaj pe topicul robot/control ca ESP32 sa vorbeasca pe difuzor.
 
-De ce "merge uneori, alteori nu" (la fel pe broker public HiveMQ):
-  - broker.hivemq.com e gratuit, fara SLA — uneori e aglomerat sau limiteaza conexiuni;
+Diagnoza daca "merge uneori, alteori nu":
+  - broker local (ex. Mosquitto pe PC): IP gresit sau Mosquitto nu asculta pe 0.0.0.0:1883 / firewall;
   - acelasi MQTT client_id cu o sesiune veche inca deschisa → noul client poate fi respins;
-  - retea WiFi / DNS temporar;
+  - retea WiFi;
   - pe robot: WiFi pierdut, ESP trebuie repornit sau reconectat MQTT.
 
 Acest script: client_id unic la fiecare rulare, QoS 1, reincercari cu asteptare.
@@ -30,7 +30,7 @@ except ImportError:
 
 import paho.mqtt.client as mqtt
 
-BROKER = os.environ.get("MQTT_BROKER", "broker.hivemq.com")
+BROKER = os.environ.get("MQTT_BROKER", "192.168.100.134")
 PORT = int(os.environ.get("MQTT_PORT", "1883"))
 USE_TLS = os.environ.get("MQTT_USE_TLS", "0") == "1"
 TOPIC = "robot/control"

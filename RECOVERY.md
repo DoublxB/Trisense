@@ -51,9 +51,10 @@ py -m mpremote connect COM6 cp pyhuskylens.py :pyhuskylens.py
 
 Dacă ai încărcat doar `pupremote.py` din repo și apare **`AttributeError: 'LPF2' object has no attribute 'update_payload'`**, încarcă neapărat și **`lpf2.py`** din același proiect (cele două trebuie să fie din aceeași versiune).
 
-### Pasul 5: Rulare
+### Pasul 5: Rulare (înlocuiesti COM6 cu portul ESP, ex. COM7)
+
 ```powershell
-py -m mpremote connect COM6 run main_robot.py
+python -m mpremote connect COM7 run main_robot.py
 ```
 
 ---

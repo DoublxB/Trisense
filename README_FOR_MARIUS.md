@@ -24,7 +24,15 @@ Opțional, verifici ce e pe flash:
 python -m mpremote connect COM7 ls
 ```
 
-`main.py` trebuie să existe și să aibă dimensiune mare (același cod ca `main_robot.py`).
+**Rulare firmware din sursa locala (fără depindere de `main.py` pe flash):**
+
+```powershell
+python -m mpremote connect COM7 run main_robot.py
+```
+
+Comanda aceasta citește **`main_robot.py` din folderul curent pe PC** și îl execute pe placă — utilă pentru teste rapide sau când **`main.py` de pe flash** nu e sincron cu repo-ul.
+
+Pentru **pornire la alimentare fără PC**, **`main.py` trebuie să existe și să fie mare** pe flash-ul ESP (copiat cu `cp main_robot.py :main.py` mai sus).
 
 **Important:** fișierul **`main.py`** din rădăcina repo-ului este programul **Pybricks pentru hub LEGO** — **nu** se copiază pe ESP. Pe ESP **`main.py`** = conținutul lui **`main_robot.py`**.
 
@@ -174,7 +182,8 @@ Atunci TriSense procesează vocea și poate trimite comanda către robot (MQTT /
 |-----|---------|
 | **1** | Mosquitto pornit (`mosquitto -v`) |
 | **2** | Schimbă în `main_robot.py`: Wi‑Fi + `MQTT_BROKER` = IPv4 laptop; în `.env`: același broker + la nevoie alte variabile pentru PC |
-| **2b** | `mpremote cp main_robot.py :main.py` apoi `reset` (ESP pornește singur — vezi secțiunea „Pornire automată”) |
+| **2b** | `
+e cp main_robot.py :main.py` apoi `reset` (ESP pornește singur — vezi secțiunea „Pornire automată”) |
 | **3** | `ipconfig` → notezi **IPv4** laptop pentru broker |
 | **4** | `python -m mpremote connect COM7` (sau alt COM) → notezi **IP robot** pentru `PC_VOICE_IP` în `.env` |
 | **5** | Handshake vizibil → scoți USB de la laptop → apeși **butonul hub** |
@@ -187,9 +196,15 @@ Atunci TriSense procesează vocea și poate trimite comanda către robot (MQTT /
 
 În alt loc cu **Wi‑Fi diferit**:
 
-- Obligatoriu actualizezi de obicei **`main_robot.py`** (SSID, parolă, `MQTT_BROKER`) și `.env`.
+- Obligatoriu actualizezi **`secrets.py`** (Wi‑Fi, `MQTT_BROKER`, `PC_VOICE_IP`), copiat pe ESP și **`.env`** pe laptop.
 
-- **`secrets.py` pe placă**: conține `GEMINI_API_KEY` și, la voi, `PC_VOICE_IP` pentru fluxuri unde ESP trimite voce către PC fără IP în MQTT. Poți să-l lasi dacă nu folosiți acel flux; dacă folosiți și **IP-ul laptopului nou e altul**, actualizezi `PC_VOICE_IP` și re-upload `secrets.py` pe ESP.
+- **Copiere `secrets.py` pe placă** (din folderul proiectului, înlocuiesti `COM7`):
+
+```powershell
+python -m mpremote connect COM7 cp secrets.py :secrets.py
+```
+
+- **`secrets.py` pe placă**: conține `GEMINI_API_KEY`, `WIFI_*`, și `PC_VOICE_IP` pentru fluxuri unde ESP trimite voce către PC fără IP în MQTT.
 
 Nu comita `secrets.py` sau `.env` în Git dacă echipe cu chei diferite lucrează separat — folosiți exemple din repo (`secrets.example.py`, `.env.example` dacă există).
 

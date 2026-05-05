@@ -2,6 +2,7 @@
 # Gemini API (SDK oficial): https://ai.google.dev/gemini-api/docs/quickstart
 paho-mqtt>=1.6.1
 google-genai>=1.0.0
+google-cloud-texttospeech>=2.16.0
 python-dotenv>=1.0.0
 pyttsx3>=2.90
 numpy

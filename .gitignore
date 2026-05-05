@@ -1,6 +1,7 @@
 # Nu comita secrete
 .env
 secrets.py
+cheie_google.json
 .venv/
 __pycache__/
 *.pyc

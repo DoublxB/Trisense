@@ -9,8 +9,6 @@ import struct
 logger = logging.getLogger(__name__)
 
 _MAGIC = b"TPCM"
-# Lower streaming bandwidth for smoother playback on ESP over Wi-Fi.
-_TARGET_SAMPLE_RATE = 16000
 # Tuning for small 4 ohm / 2W speaker: less bass + safer level.
 _OUT_GAIN_Q15 = 21000
 _HP_ALPHA_Q15 = 29491  # ~0.9 (simple high-pass / DC-block)
@@ -24,7 +22,6 @@ def send_pcm_to_esp(host: str, port: int, pcm: bytes, sample_rate: int) -> bool:
         sample_rate = 24000
     if len(pcm) < 2:
         return False
-    pcm, sample_rate = _resample_mono_pcm16(pcm, sample_rate, _TARGET_SAMPLE_RATE)
     pcm_out = _mono_to_stereo_pcm16(pcm, gain_q15=24500)
     if not pcm_out:
         return False

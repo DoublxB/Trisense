@@ -28,7 +28,7 @@ except ImportError:
 
 import paho.mqtt.client as mqtt
 
-BROKER = os.environ.get("MQTT_BROKER", "broker.hivemq.com")
+BROKER = os.environ.get("MQTT_BROKER", "192.168.100.134")
 PORT = int(os.environ.get("MQTT_PORT", "1883"))
 TOPIC = "robot/control"
 

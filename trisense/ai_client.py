@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import io
+import json
 import logging
 import os
 import re
@@ -20,6 +21,16 @@ from trisense.config import GEMINI_MODEL, GEMINI_TTS_MODEL, TRISENSE_TTS_VOICE
 
 logger = logging.getLogger(__name__)
 
+
+def _project_id_from_credentials_json(path_str: str) -> str:
+    try:
+        with open(path_str, encoding="utf-8") as f:
+            obj = json.load(f)
+        pid = obj.get("project_id")
+        return pid.strip() if isinstance(pid, str) else ""
+    except (OSError, json.JSONDecodeError, TypeError, AttributeError):
+        return ""
+
 SYSTEM_PROMPT_TRISENSE = """You are TriSense, a friendly and patient robot companion for children.
 You are a calm and encouraging tutor, adapted for autistic children: short sentences, clarity, no sarcasm,
 no pressure. Always use the child's name when provided. Do not provide medical advice;
@@ -28,7 +39,7 @@ focus on play activities, encouragement, and simple routines. Language: English.
 
 class TriSenseAI:
     """
-    Foloseste google.genai.Client — cheia din GEMINI_API_KEY (ca in documentatie).
+    Google Gen AI SDK (`google-genai`): fie GEMINI_API_KEY (AI Studio), fie Vertex AI cu service account JSON.
     """
 
     def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None) -> None:
@@ -36,14 +47,44 @@ class TriSenseAI:
         self._model_name = model or GEMINI_MODEL
         self._client = None
 
-        if self._api_key:
-            try:
-                from google import genai
+        try:
+            from trisense.config import (
+                GEMINI_USE_VERTEX,
+                GCP_LOCATION,
+                GCP_PROJECT,
+                default_google_credentials_path,
+            )
 
+            cred_path = default_google_credentials_path()
+            if cred_path is not None:
+                os.environ.setdefault("GOOGLE_APPLICATION_CREDENTIALS", str(cred_path))
+
+            project = (GCP_PROJECT or "").strip()
+            location = GCP_LOCATION.strip() if GCP_LOCATION else "global"
+            use_vertex = GEMINI_USE_VERTEX
+
+            from google import genai
+
+            if use_vertex:
+                cred_file = ""
+                if cred_path is not None:
+                    cred_file = str(cred_path)
+                    if not project:
+                        project = _project_id_from_credentials_json(cred_file).strip()
+                if cred_file and project:
+                    self._client = genai.Client(vertexai=True, project=project, location=location)
+                    logger.info("Gemini via Vertex AI (project=%s, location=%s, model=%s)", project, location, self._model_name)
+                    return
+                logger.warning(
+                    "GEMINI_USE_VERTEX=1 dar lipsesc credentials (cheie_google.json sau GOOGLE_APPLICATION_CREDENTIALS) "
+                    "sau project_id în JSON / GCP_PROJECT."
+                )
+
+            if self._api_key:
                 self._client = genai.Client(api_key=self._api_key)
-            except Exception as e:
-                logger.warning("Google GenAI (google-genai) nu e disponibil: %s", e)
-                self._client = None
+        except Exception as e:
+            logger.warning("Google GenAI (google-genai) nu e disponibil: %s", e)
+            self._client = None
 
     @property
     def available(self) -> bool:
@@ -57,7 +98,7 @@ class TriSenseAI:
     ) -> str:
         """Generate a TriSense reply (same contract used by brain.py)."""
         if not self._client:
-            return f"[TriSense] {user_message} (configure GEMINI_API_KEY for real AI)"
+            return f"[TriSense] {user_message} (seteaza GEMINI_API_KEY sau GEMINI_USE_VERTEX=1 cu cheie_google.json / GCP)"
 
         name = child_name.strip() if child_name else "friend"
         user_turn = (
@@ -83,6 +124,49 @@ class TriSenseAI:
             logger.exception("Gemini error: %s", e)
             return f"TriSense: I had a technical issue. Please try again. ({name}, I am here.)"
 
+    def reply_with_image_jpeg(
+        self,
+        jpeg_bytes: bytes,
+        prompt: str,
+        child_name: str,
+        max_tokens: int = 400,
+    ) -> str:
+        """
+        Răspuns multimodal cu o captură de cameră (JPEG).
+        Folosește același model ca `reply` (ex. gemini-1.5-flash pe Vertex).
+        """
+        if not self._client or not jpeg_bytes or len(jpeg_bytes) < 100:
+            return self.reply((prompt or "").strip(), child_name, max_tokens=max_tokens)
+        name = child_name.strip() if child_name else "friend"
+        task = (
+            f"The child name is: {name}. Address them by name sometimes.\n\n"
+            f"Task:\n{(prompt or '').strip()}"
+        )
+        try:
+            from google.genai import types
+
+            response = self._client.models.generate_content(
+                model=self._model_name,
+                contents=[
+                    types.Content(
+                        role="user",
+                        parts=[
+                            types.Part.from_bytes(data=jpeg_bytes, mime_type="image/jpeg"),
+                            types.Part.from_text(text=task),
+                        ],
+                    )
+                ],
+                config=types.GenerateContentConfig(
+                    system_instruction=SYSTEM_PROMPT_TRISENSE,
+                    temperature=0.7,
+                    max_output_tokens=max_tokens,
+                ),
+            )
+            return (_extract_response_text(response) or "").strip()
+        except Exception as e:
+            logger.exception("Gemini vision error: %s", e)
+            return f"TriSense: I could not see well enough. ({name}, try again?)"
+
     def transcribe_wav(self, wav_bytes: bytes) -> str:
         """Transcribe WAV (PCM 16-bit mono, e.g. 16 kHz) to text via Gemini multimodal."""
         if not self._client or not wav_bytes:
@@ -105,7 +189,8 @@ class TriSenseAI:
                             types.Part.from_text(
                                 text=(
                                     "Transcribe exactly what you hear in English. "
-                                    "Return only spoken text, no quotes, no explanations."
+                                    "Return only spoken text, no quotes, no explanations. "
+                                    "If the speaker says a single word, return that word only."
                                 )
                             ),
                         ],

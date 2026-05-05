@@ -125,7 +125,12 @@ Acest mod porneste si serverul TCP de voce (implicit port `8765`), care primeste
 
 ## Configurare ESP32
 
-- Ruleaza firmware-ul din `main_robot.py` pe placa LMS-ESP32.
+- Ruleaza firmware-ul din `main_robot.py` pe placa LMS-ESP32 (din folderul proiectului inlocuiesti COM7 dupa cum apare ESP-ul in Device Manager):
+
+```bash
+python -m mpremote connect COM7 run main_robot.py
+```
+
 - Creeaza `secrets.py` pe ESP (nu in repo) pentru chei/date locale (ex: `GEMINI_API_KEY`, `PC_VOICE_IP`).
 - Verifica reteaua Wi-Fi si brokerul MQTT din configurarea ESP.
 

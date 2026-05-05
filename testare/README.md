@@ -12,6 +12,7 @@ Acest folder contine scripturile de test pentru hardware si comunicare.
 | `demo_speak_tcp.py` | TTS pe PC (pyttsx3) → PCM TCP la difuzor ESP (fara MQTT / Gemini pe ESP) |
 | `mqtt_voice_listen_test.py` | Trimite comanda MQTT `listen` pentru flux vocal TCP |
 | `test_laptop_mic.py` | Test local microfon laptop -> STT -> LLM -> TTS -> ESP |
+| `test_motor_integration.py` | Smoke MQTT (`robot/control` + optional `vision/tags`) pentru miscari hub |
 
 ## Schema pini
 
@@ -103,8 +104,27 @@ py testare/mqtt_voice_listen_test.py 192.168.1.50
 py testare/test_laptop_mic.py
 ```
 
+### 6) Smoke MQTT motrice + vision simulată
+
+```bash
+py testare/test_motor_integration.py
+py testare/test_motor_integration.py --cmd 12 --pause 2
+py testare/test_motor_integration.py --actions play_greeting
+py testare/test_motor_integration.py --vision-id 21
+```
+
+Ultima comandă publică `vision/tags` (simulare cameră): rulează **TriSenseBrain** pe PC dacă ceri cascada vizual→motor cu `VISION_ID_TO_ACTION`.
+
+### Demo concurs — PAS 3 / 4 / 5
+
+| PAS | Rol | Ce rulezi |
+|-----|-----|-----------|
+| 3 | Salut stabil fara Gemini in primul minut | PCM `greeting.pcm` la boot + MQTT `action` = `play_greeting` (repetare); sau **demo_speak_tcp** pe `:8766` |
+| 4 | Show respiratie vizual (~35 s) | Hub **cmd 12** cu `action` = `breathing_show`; voce PC separata (paralela) |
+| 5 | Conversație mini + gest-uri | **run_voice_dialog** + MQTT `listen`; cuvinte ex. **football** → mana dreapta (detalii in `brain.py`) |
+
 ## Observatii
 
-- Inainte de testele MQTT, asigura-te ca `MQTT_BROKER` si `MQTT_PORT` sunt corecte in `.env`.
-- Pentru testele audio ESP, inchide orice alta sesiune care foloseste acelasi port serial.
+- Înainte de testele MQTT, asigură-te că `MQTT_BROKER` și `MQTT_PORT` sunt corecte în `.env`.
+- **PAS 5 (un cuvânt sport)**: În log caută linia `Voce TCP transcriere:` după Dictare — dacă transcrierea e goală ori nu conține `football` / `soccer` / `fotbal` (în orice limbă Gemini le scrie în litere ASCII), gestul lipsește. Repornești creierul după modificările din cod; dacă apare `MQTT indisponibil`, broker-ul nu era gata înainte de comandă gest.
 - Daca folosesti alta placa/alt port, inlocuieste `COM7` in comenzi.

@@ -143,7 +143,11 @@ class MqttBrainClient:
     def publish_control(self, command: dict[str, Any]) -> bool:
         """Trimite comanda JSON pe robot/control."""
         if not self._client or not self._connected.is_set():
-            logger.debug("MQTT indisponibil; comanda nu trimisa: %s", command)
+            is_motor_hint = isinstance(command, dict) and (
+                command.get("action") is not None or command.get("cmd") is not None
+            )
+            log_fn = logger.warning if is_motor_hint else logger.debug
+            log_fn("MQTT indisponibil; comanda nu trimisa: %s", command)
             return False
         try:
             payload = json.dumps(command, ensure_ascii=False)

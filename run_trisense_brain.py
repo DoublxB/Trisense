@@ -5,7 +5,9 @@ Punct de intrare: Creier TriSense 3.0 (PC).
 Ruleaza din folderul proiectului:
   py run_trisense_brain.py
 
-Setari: copiaza .env.example in .env si completeaza GEMINI_API_KEY (Google AI Studio).
+Setări: copiază .env.example în .env.
+- API key: GEMINI_API_KEY (Google AI Studio), sau
+- Vertex + credit GCP: GEMINI_USE_VERTEX=1 și `cheie_google.json` (vezi .env.example).
 """
 
 from __future__ import annotations

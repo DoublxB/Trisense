@@ -53,7 +53,10 @@ class TTSEngine:
 
     def synthesize_pcm(self, text: str) -> tuple[bytes, int]:
         """Genereaza PCM mono int16 din text (pyttsx3 -> WAV temp -> bytes).
-        Returneaza (pcm_bytes, sample_rate). Pe Windows, SAPI scoate de obicei 22050 Hz.
+
+        Pe Windows, pyttsx3+SAPI are bug cunoscut: la al 2-lea save_to_file
+        in acelasi engine, runAndWait() blocheaza la infinit. Reinitializam
+        engine-ul la fiecare apel ca sa evitam blocajul.
         """
         text = (text or "").strip()
         if not text or self._engine is None:
@@ -64,8 +67,20 @@ class TTSEngine:
                 tmp_path = f.name
             with self._lock:
                 try:
-                    self._engine.save_to_file(text, tmp_path)
-                    self._engine.runAndWait()
+                    import pyttsx3
+
+                    eng = pyttsx3.init()
+                    try:
+                        eng.setProperty("rate", 170)
+                    except Exception:
+                        pass
+                    eng.save_to_file(text, tmp_path)
+                    eng.runAndWait()
+                    try:
+                        eng.stop()
+                    except Exception:
+                        pass
+                    del eng
                 except Exception as e:
                     logger.warning("pyttsx3 save_to_file esuat: %s", e)
                     return b"", 16000

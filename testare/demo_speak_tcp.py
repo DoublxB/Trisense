@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-Demo / salut: sintetizare TTS pe PC (pyttsx3) → PCM TCP → difuzor ESP (port 8766).
+Demo PAS 3: salut stabil fara Gemini pe ESP (pyttsx3 pe PC → PCM TCP :8766).
 
-NU foloseste MQTT si NU foloseste Gemini pe ESP — acelasi lant ca partea TTS din test_laptop_mic.
+NU foloseste MQTT; pentru varianta fisier PCM pe ESP vezi greeting.pcm si tri_play_greeting_pcm in main_robot.
 
 Rulare:
   py testare\\demo_speak_tcp.py
-  py testare\\demo_speak_tcp.py \"Hello I'm TrySense! Let's play!\"
+  py testare\\demo_speak_tcp.py \"Hi I'm TriSense! Let's breathe and play!\"
 
 Necesita in .env:
   PC_VOICE_IP = <IP ESP32 dupa WiFi>   (acelasi lucru ca pentru test_laptop_mic cu TTS over TCP)
@@ -40,7 +40,7 @@ from trisense.tts_engine import TTSEngine
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_TEXT = "Hello I'm TrySense! Let's play!"
+_DEFAULT_TEXT = "Hi, I'm TriSense! Let's breathe and play!"
 
 
 def main() -> None:

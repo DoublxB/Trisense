@@ -2,15 +2,15 @@
 """
 Creier TriSense + server TCP pentru dialog prin microfonul ESP32.
 
-1. Pe PC: seteaza in .env GEMINI_API_KEY si (optional) VOICE_TCP_PORT=8765.
+1. Pe PC: seteaza in .env GEMINI_USE_VERTEX=1 și cheie `cheie_google.json` SAU GEMINI_API_KEY (AI Studio).
 2. Porneste firewall pentru portul TCP pe LAN (Windows: regula inbound TCP).
 3. In secrets.py pe ESP: PC_VOICE_IP = "IP-ul-PC-ului" (aceeasi retea WiFi ca robotul).
 4. Ruleaza: py run_voice_dialog.py
-5. Trimite de la PC (MQTT) sau din alt script: pe topic robot/control payload:
-   {"listen": true}  — ESP inregistreaza ~10s (implicit) si trimite PCM la PC.
+5. Demo PAS 5 (Let's talk): trimite MQTT `{"listen": true}` pe robot/control (~10 s inregistrare).
+   Gesturi dupa transcript fara LLM sport: fotbal / football / soccer → brat dreapta; rugby / basketball / handball → brat stanga.
+   PAS 4 show respiratie pe hub (~10 s): „guided breathing”, „breathing exercise” sau respiratie ghidata.
 
-Flux: microfon I2S ESP -> TCP -> WAV -> Gemini STT -> Gemini raspuns ->
-      TTS pe PC -> Audio TCP direct pe difuzor ESP (fallback: MQTT speak).
+Flux ulterior microfon ESP: TCP -> Gemini STT -> raspuns Gemini -> Audio TCP sau MQTT speak.
 """
 
 from __future__ import annotations
