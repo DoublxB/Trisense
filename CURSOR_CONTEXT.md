@@ -131,6 +131,45 @@ START → SALUT (recunoaștere față) → SELECTIE_JOC → ACTIVITATE
 | `testare/test_laptop_mic.py` | PC | Test Act.6/7 cu microfon laptop |
 | `secrets.example.py` | ESP32 | Template pentru secrets.py |
 
+## Instrucțiuni pentru Cursor AI
+
+**Ești responsabil să faci totul singur.** Când utilizatorul îți cere ceva, fă-l direct — scrie cod, uploadează pe ESP, modifică configurări, fără să aștepți confirmare la fiecare pas.
+
+### Schimbat rețeaua WiFi (Inventika vs Acasă)
+Când utilizatorul spune că e într-o locație nouă (ex. "sunt la inventika", "sunt acasă"):
+1. Întreabă-l **SSID**, **parola** și **IP-ul PC-ului** (`ipconfig` în terminal)
+2. Actualizează **toate** fișierele simultan:
+   - `.env` → `MQTT_BROKER`, `PC_VOICE_IP`, `ROBOT_ESP_IP`
+   - `main_robot.py` → default-urile `WIFI_SSID`, `WIFI_PASS`, `MQTT_BROKER`
+   - `secrets.py` pe ESP → creează local, uploadează cu `py -m mpremote cp secrets.py :secrets.py`, apoi șterge local
+3. `ROBOT_ESP_IP` nu-l știi dinainte — pune un placeholder, apoi după ce ESP-ul bootează verifică IP-ul real:
+   ```powershell
+   py -m mpremote exec "import network; w=network.WLAN(network.STA_IF); print(w.ifconfig())"
+   ```
+4. Upload ESP: **`main_robot.py` se copiază ca `:main.py`** (NU ca `:main_robot.py`!)
+   ```powershell
+   py -m mpremote cp main_robot.py :main.py; py -m mpremote reset
+   ```
+
+### Rețele cunoscute
+
+| Locație | SSID | Parola | IP PC (exemplu) |
+|---------|------|--------|-----------------|
+| Acasă | Orange-292q-2.4G | Y8kCA4vx | 192.168.100.134 |
+| Inventika | inventika | !#inventika2025 | 192.168.80.106 |
+
+### Upload pe ESP — reguli stricte
+- **`main_robot.py`** local → se urcă pe ESP ca **`:main.py`** (MicroPython boot file)
+- **NU** urcă ca `:main_robot.py` — ESP-ul nu-l va rula
+- Dacă serialul e deschis în alt terminal (`mpremote connect`), `mpremote cp` va da `no device found` — utilizatorul trebuie să închidă serialul
+- PowerShell nu suportă `&&` — folosește `;` între comenzi
+
+### Upload pe Hub LEGO — reguli stricte
+- **`main.py`** local → se uploadează prin **Pybricks IDE** (code.pybricks.com, Bluetooth)
+- NU se poate uploada prin mpremote — Hub-ul rulează Pybricks, nu MicroPython standard
+- După upload, trebuie apăsat **butonul verde** pe Hub sau dat **Run** din Pybricks IDE
+- Prima linie din `main.py` **NU trebuie să aibă spații înainte** (IndentationError pe Pybricks)
+
 ## Cum se rulează
 
 ### Pregătire
