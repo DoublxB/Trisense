@@ -1,6 +1,5 @@
-from machine import Pin, SoftI2C, I2S
+from machine import Pin, I2S
 from pupremote import PUPRemoteSensor
-from pyhuskylens import HuskyLens, ALGORITHM_OBJECT_CLASSIFICATION
 import asyncio
 import time
 import json
@@ -402,22 +401,14 @@ def _snippet_json_error(raw_bytes):
 
 
 def _play_mono_pcm_bytes(pcm, pr_sensor, audio, gain_q15=None, mono_chunk_bytes=None, ticker_running=False):
-    """Reda mono PCM16 LE; chunk-uri cu buffer stereo reutilizat.
-
-    mono_chunk_bytes: PAS4 — chunk mono mic + scriere stereo în felii (lpf2 cere heartbeat <~1s).
-    ticker_running: daca ticker-ul LPF2 ruleaza pe core 2, nu mai facem interleaving agresiv.
-    """
+    """Reda mono PCM16 LE cu I2S non-blocking. pr.process() e apelat intre chunk-uri."""
     g = _TTS_GAIN_Q15 if gain_q15 is None else gain_q15
-    ckb = _TTS_STREAM_CHUNK_BYTES if mono_chunk_bytes is None else int(mono_chunk_bytes)
-    if ticker_running:
-        ckb = max(2048, ckb)
-    elif mono_chunk_bytes is None:
-        ckb = max(512, (ckb // 2) * 2)
-    else:
-        ckb = max(192, (ckb // 2) * 2)
-    ckb = (ckb // 2) * 2
+    ckb = _TTS_STREAM_CHUNK_BYTES if mono_chunk_bytes is not None else 512
+    ckb = max(192, (ckb // 2) * 2)
     if len(pcm) < 2:
         return
+    hub = pr_sensor if pr_sensor is not None else pr
+    audio.irq(_i2s_irq_cb)
     total_in = len(pcm)
     off = 0
     while off < total_in:
@@ -428,55 +419,12 @@ def _play_mono_pcm_bytes(pcm, pr_sensor, audio, gain_q15=None, mono_chunk_bytes=
             end -= 1
         seg = pcm[off:end]
         off = end
-        if not ticker_running and pr_sensor is not None:
-            try:
-                pr_sensor.process()
-            except Exception:
-                pass
         nb = _mono16_to_stereo_buf_gain_into(seg, g, _TTS_STEREO_WORK)
         if nb is None:
             stereo = _mono16_to_stereo_buf_gain(seg, g)
-            mv = memoryview(stereo)
-            nb = len(stereo)
+            _i2s_write_nb(audio, stereo, hub)
         else:
-            mv = memoryview(_TTS_STEREO_WORK)[:nb]
-            stereo = None
-
-        if ticker_running:
-            audio.write(mv[:nb])
-            # Yield la GIL ca Core 2 sa apuce sa cheme pr.process().
-            time.sleep_ms(1)
-        elif mono_chunk_bytes is not None:
-            stripe = _BREATHE_I2S_STEREO_CHUNK
-            j = 0
-            while j < nb:
-                k = min(j + stripe, nb)
-                if pr_sensor is not None:
-                    try:
-                        pr_sensor.process()
-                    except Exception:
-                        pass
-                audio.write(mv[j:k])
-                j = k
-                if pr_sensor is not None:
-                    try:
-                        for _ in range(4):
-                            pr_sensor.process()
-                    except Exception:
-                        pass
-                time.sleep_ms(1)
-        else:
-            if pr_sensor is not None:
-                try:
-                    pr_sensor.process()
-                except Exception:
-                    pass
-            audio.write(mv[:nb])
-            if pr_sensor is not None:
-                try:
-                    pr_sensor.process()
-                except Exception:
-                    pass
+            _i2s_write_nb(audio, memoryview(_TTS_STEREO_WORK)[:nb], hub)
 
 
 def tri_play_greeting_pcm(pr_sensor=None, path="greeting.pcm", log_tag="Salut PCM"):
@@ -568,33 +516,25 @@ def tri_play_greeting_pcm(pr_sensor=None, path="greeting.pcm", log_tag="Salut PC
     play_gain = _BREATHE_PCM_GAIN_Q15 if is_breathe_clip else _TTS_GAIN_Q15
     pcm_chunk = _BREATHE_PCM_CHUNK_BYTES if is_breathe_clip else None
     audio = None
-    tick_target_g = pr_sensor if pr_sensor is not None else pr
-    ticker_active_g = lpf2_ticker_start(tick_target_g)
-    if ticker_active_g:
-        print(">>>", log_tag, "LPF2 ticker pornit pe core 2.")
+    hub = pr_sensor if pr_sensor is not None else pr
     try:
         try:
             import gc
-
             gc.collect()
         except Exception:
             pass
         en = Pin(AMP_ENABLE_PIN, Pin.OUT)
         en.value(1)
         time.sleep_ms(2)
-        if is_breathe_clip and not ticker_active_g:
+        if is_breathe_clip:
             for _ in range(_BREATHE_PRE_PLAY_HUB_SPINS):
                 try:
-                    tick_target_g.process()
+                    hub.process()
                 except Exception:
                     pass
                 time.sleep_ms(_BREATHE_PRE_PLAY_SPIN_SLEEP_MS)
         last_i2s_err = None
-        if ticker_active_g:
-            ibuf_order = (16384, 8192, 32768) if is_breathe_clip else (16384, 32768, 8192)
-        else:
-            ibuf_order = (2048, 1024, 4096, 8192, 16384, 32768) if is_breathe_clip else (8192, 16384, 32768, 4096)
-        for ibuf_try in ibuf_order:
+        for ibuf_try in (16384, 8192, 32768, 4096):
             try:
                 audio = I2S(
                     0,
@@ -618,14 +558,13 @@ def tri_play_greeting_pcm(pr_sensor=None, path="greeting.pcm", log_tag="Salut PC
                 audio = None
                 try:
                     import gc
-
                     gc.collect()
                 except Exception:
                     pass
         if audio is None:
             print(">>>", log_tag, "I2S init esuat RAM (incerca ibuf mic):", last_i2s_err)
             return
-        _play_mono_pcm_bytes(pcm, pr_sensor, audio, play_gain, pcm_chunk, ticker_running=ticker_active_g)
+        _play_mono_pcm_bytes(pcm, pr_sensor, audio, play_gain, pcm_chunk)
         print(">>>", log_tag, "terminat.")
     except Exception as e:
         print(">>>", log_tag, "I2S err:", e)
@@ -635,10 +574,6 @@ def tri_play_greeting_pcm(pr_sensor=None, path="greeting.pcm", log_tag="Salut PC
                 audio.deinit()
         except Exception:
             pass
-        if ticker_active_g:
-            time.sleep_ms(150)
-            lpf2_ticker_stop()
-            print(">>>", log_tag, "LPF2 ticker oprit.")
         try:
             import gc
 
@@ -1027,13 +962,19 @@ def tri_record_send_tcp(pc_host, port, duration_ms, pr_sensor=None):
         return
     sock = None
     audio_in = None
+    hub = pr_sensor if pr_sensor is not None else pr
+    ticker_active_v = False
     try:
+        ticker_active_v = lpf2_ticker_start(hub)
         import socket
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(45.0)
+        # Connect-ul poate bloca lung daca serverul PC nu e pornit; tinem timeout scurt.
+        sock.settimeout(3.0)
         sock.connect((pc_host, int(port)))
         sock.send(b"TRIS" + struct.pack("<I", total_bytes))
+        # Dupa handshake, permitem transfer de durata.
+        sock.settimeout(45.0)
         audio_in = I2S(
             1,
             sck=Pin(I2S_BCLK),
@@ -1045,21 +986,17 @@ def tri_record_send_tcp(pc_host, port, duration_ms, pr_sensor=None):
             rate=MIC_RATE,
             ibuf=16000,
         )
+        audio_in.irq(_i2s_irq_cb)
         buf = bytearray(2048)
         sent = 0
         while sent < total_bytes:
             chunk = min(len(buf), total_bytes - sent)
-            n = audio_in.readinto(memoryview(buf)[:chunk])
+            n = _i2s_readinto_nb(audio_in, memoryview(buf)[:chunk], hub)
             if not n:
-                time.sleep_ms(5)
-                if pr_sensor is not None:
-                    pr_sensor.process()
                 continue
             mv = memoryview(buf)[:n]
             sock.send(mv)
             sent += n
-            if pr_sensor is not None:
-                pr_sensor.process()
         print("Voce TCP: trimis", sent, "octeti catre", pc_host, ":", int(port))
     except Exception as e:
         print("Voce TCP trimite esuat:", e)
@@ -1074,6 +1011,9 @@ def tri_record_send_tcp(pc_host, port, duration_ms, pr_sensor=None):
                 sock.close()
         except Exception:
             pass
+        if ticker_active_v:
+            time.sleep_ms(80)
+            lpf2_ticker_stop()
         # RX pe acelasi BCLK/LRC ca TX: lasa perifericul sa se elibereze inainte de urmatoarea redare difuzor.
         time.sleep_ms(40)
 
@@ -1131,8 +1071,61 @@ def _recv_exact(conn, n, pr_sensor=None):
     return bytes(data)
 
 
-# LPF2 heartbeat ticker pe core 2 — pr.process() ruleaza independent de I2S care
-# blocheaza core 1. Esential ca LPF2 sa nu moara in timpul audio TCP/PCM.
+# ---------------------------------------------------------------------------
+# I2S non-blocking helpers — mentine LPF2 heartbeat in timpul audio I/O.
+#
+# MicroPython I2S: audio.irq(handler) face audio.write()/readinto() non-blocking.
+# Callback-ul e chemat cand DMA-ul termina transferul. Intre transferuri
+# main thread-ul e liber sa apeleze pr.process() si sa mentina LPF2 viu.
+# ---------------------------------------------------------------------------
+_I2S_NB_READY = True
+
+
+def _i2s_irq_cb(arg):
+    global _I2S_NB_READY
+    _I2S_NB_READY = True
+
+
+def _i2s_write_nb(audio_dev, data, pr_sensor, chunk_size=2048):
+    """Scrie data pe I2S in mod non-blocking, apeland pr.process() intre chunk-uri.
+    audio_dev trebuie sa aiba deja irq setat cu _i2s_irq_cb."""
+    global _I2S_NB_READY
+    mv = memoryview(data)
+    off = 0
+    total = len(data)
+    while off < total:
+        end = min(off + chunk_size, total)
+        chunk = mv[off:end]
+        _I2S_NB_READY = False
+        audio_dev.write(chunk)
+        while not _I2S_NB_READY:
+            if pr_sensor is not None:
+                try:
+                    pr_sensor.process()
+                except Exception:
+                    pass
+            time.sleep_ms(2)
+        off = end
+
+
+def _i2s_readinto_nb(audio_dev, buf, pr_sensor):
+    """Citeste din I2S in mod non-blocking, apeland pr.process() cat asteapta.
+    audio_dev trebuie sa aiba deja irq setat cu _i2s_irq_cb."""
+    global _I2S_NB_READY
+    _I2S_NB_READY = False
+    n = audio_dev.readinto(buf)
+    while not _I2S_NB_READY:
+        if pr_sensor is not None:
+            try:
+                pr_sensor.process()
+            except Exception:
+                pass
+        time.sleep_ms(2)
+    return n
+
+
+# LPF2 heartbeat ticker pe core 2 — backup suplimentar pt cazuri in care
+# main thread-ul e blocat scurt (socket recv, gc.collect, etc).
 _LPF2_TICKER_RUN = False
 _LPF2_TICKER_PR = None
 
@@ -1149,7 +1142,8 @@ def _lpf2_ticker_loop():
 
 
 def lpf2_ticker_start(pr_sensor):
-    """Porneste ticker LPF2 pe core 2. Apel inainte de I2S audio."""
+    """Porneste ticker LPF2 pe core 2 ca backup. Cu I2S non-blocking, GIL-ul e cedat
+    frecvent, deci ticker-ul poate rula in paralel fara sa fie starveit."""
     global _LPF2_TICKER_RUN, _LPF2_TICKER_PR
     if not _HAS_THREAD:
         return False
@@ -1176,33 +1170,18 @@ def lpf2_ticker_stop():
 
 
 def _play_pcm_stream_from_conn(conn, sample_rate, total_len, pr_sensor=None):
-    """Citeste PCM stereo din socket si reda incremental (fara conversie grea pe ESP).
-
-    Mentine LPF2 viu in timpul redarii: foloseste pr_sensor primit, sau cade pe
-    instanta globala `pr` daca apelantul nu o paseaza (cazul async).
-    I2S.write blocheaza; uasyncio nu ruleaza heartbeat in paralel → tick sincron dens.
-    lpf2: >1000 ms fara heartbeat() -> „line is dead”.
-    """
+    """Citeste PCM stereo din socket si reda cu I2S non-blocking.
+    pr.process() e apelat intre chunk-uri -- LPF2 ramane viu."""
     if sample_rate < 8000 or sample_rate > 48000:
         sample_rate = 24000
     if total_len < 4 or total_len > 2000000:
         return False
 
-    # Async: proces_async nu apuca cat timp I2S e sincron → tot timpul `pr.process()` manual.
-    tick_target = pr_sensor if pr_sensor is not None else pr
-
-    # LPF2 heartbeat ticker pe al doilea core — pr.process() merge independent de I2S.
-    ticker_active = lpf2_ticker_start(tick_target)
-    if ticker_active:
-        print("Audio TCP: LPF2 ticker pornit pe core 2.")
+    hub = pr_sensor if pr_sensor is not None else pr
 
     def _tick():
-        # Daca ticker-ul ruleaza pe celalalt core, nu mai apelam pr.process() aici
-        # (ar putea cauza race conditions pe UART).
-        if ticker_active:
-            return
         try:
-            tick_target.process()
+            hub.process()
         except Exception:
             pass
 
@@ -1218,7 +1197,6 @@ def _play_pcm_stream_from_conn(conn, sample_rate, total_len, pr_sensor=None):
     try:
         try:
             import gc
-
             gc.collect()
         except Exception:
             pass
@@ -1238,10 +1216,8 @@ def _play_pcm_stream_from_conn(conn, sample_rate, total_len, pr_sensor=None):
                 break
             pre.extend(chunk0)
             _tick()
-        audio = None
         last_err = None
-        ibuf_list = (16384, 8192, 32768) if ticker_active else (2048, 4096, 8192)
-        for ibuf_try in ibuf_list:
+        for ibuf_try in (16384, 8192, 32768, 4096):
             try:
                 audio = I2S(
                     0,
@@ -1260,7 +1236,6 @@ def _play_pcm_stream_from_conn(conn, sample_rate, total_len, pr_sensor=None):
                 last_err = e
                 try:
                     import gc
-
                     gc.collect()
                 except Exception:
                     pass
@@ -1268,29 +1243,10 @@ def _play_pcm_stream_from_conn(conn, sample_rate, total_len, pr_sensor=None):
         if audio is None:
             print("Audio TCP: I2S init esuat (RAM):", last_err)
             return False
+        audio.irq(_i2s_irq_cb)
         got = 0
         carry = b""
-        # Ticker pe core 2: chunk-uri mari, fara interleaving -> audio fluid
-        # Fara ticker: chunk-uri mici + tick-uri pt LPF2 heartbeat
-        I2S_WR = 2048 if ticker_active else 128
-        _wn = 0
-
-        def _wr(sl):
-            nonlocal _wn
-            if not ticker_active:
-                _tick()
-            audio.write(sl)
-            _wn += 1
-            if ticker_active:
-                # Ibuf I2S e mare -> audio.write returneaza fara sa blocheze ->
-                # GIL nu se elibereaza -> Core 2 (ticker LPF2) e starveit.
-                # Yield explicit la GIL ca Core 2 sa apuce sa cheme pr.process().
-                time.sleep_ms(1)
-            else:
-                _tick()
-                if _wn % 2 == 0:
-                    time.sleep_ms(1)
-                    _tick()
+        I2S_WR = 2048
 
         if pre:
             got = len(pre)
@@ -1298,22 +1254,15 @@ def _play_pcm_stream_from_conn(conn, sample_rate, total_len, pr_sensor=None):
             if rem:
                 carry = bytes(pre[-rem:])
                 pre = pre[:-rem]
-            mv = memoryview(pre)
-            off = 0
-            while off < len(mv):
-                end = min(off + I2S_WR, len(mv))
-                _wr(mv[off:end])
-                off = end
+            if pre:
+                _i2s_write_nb(audio, pre, hub, I2S_WR)
         while got < total_len:
-            need = min(4096 if ticker_active else 1024, total_len - got)
-            if not ticker_active:
-                _tick()
+            _tick()
             try:
-                chunk = conn.recv(need)
+                chunk = conn.recv(min(4096, total_len - got))
             except OSError as e:
                 if _sock_recv_err_is_timeout(e):
-                    if not ticker_active:
-                        _tick()
+                    _tick()
                     continue
                 chunk = None
             except Exception:
@@ -1329,16 +1278,9 @@ def _play_pcm_stream_from_conn(conn, sample_rate, total_len, pr_sensor=None):
                 carry = chunk[-rem:]
                 chunk = chunk[:-rem]
             if chunk:
-                mv = memoryview(chunk)
-                off = 0
-                while off < len(mv):
-                    end = min(off + I2S_WR, len(mv))
-                    _wr(mv[off:end])
-                    off = end
+                _i2s_write_nb(audio, chunk, hub, I2S_WR)
             else:
                 _tick()
-        if carry:
-            carry = b""
         return got >= max(2, total_len - 2)
     finally:
         try:
@@ -1346,19 +1288,9 @@ def _play_pcm_stream_from_conn(conn, sample_rate, total_len, pr_sensor=None):
                 audio.deinit()
         except Exception:
             pass
-        # Lasa ticker-ul de pe core 2 sa mai bata cateva cicluri inainte sa-l oprim.
-        if ticker_active:
-            time.sleep_ms(150)
-            lpf2_ticker_stop()
-            print("Audio TCP: LPF2 ticker oprit.")
-        else:
-            for _ in range(_TCP_POST_PLAY_HUB_SPINS):
-                try:
-                    tick_target.process()
-                except Exception:
-                    pass
-                time.sleep_ms(_TCP_POST_PLAY_SPIN_SLEEP_MS)
-
+        for _ in range(_TCP_POST_PLAY_HUB_SPINS):
+            _tick()
+            time.sleep_ms(_TCP_POST_PLAY_SPIN_SLEEP_MS)
 
 def tri_accept_play_tcp_once(pr_sensor=None):
     """Verifica rapid daca PC a trimis audio; daca da, reda si revine."""
@@ -1424,6 +1356,9 @@ pr.add_channel("obj", to_hub_fmt="b")
 # Tabelul trebuie să coincidă cu docstring din main.py (Pybricks).
 pr.add_channel("cmd", to_hub_fmt="b")
 print("Comunicare LPF2 activata. Astept Hub-ul...")
+# Fereastra critica de boot: daca nu apelam process() in primele sute de ms,
+# Hub-ul raporteaza ENODEV si intra in retry loop.
+_spin_hub(pr, 300)
 
 # Comanda activa spre hub (resetata la 0 dupa _CMD_HOLD_MS pentru ca hub-ul sa vada o tranzitie).
 _pending_cmd = 0
@@ -1470,6 +1405,8 @@ _MQTT_ACTION_TO_CMD = {
     "emotion_happy": 15,    # dans brate + roti fata/spate + lumina plina
     "emotion_sad": 13,      # brate jos lent + puls slab
     "emotion_surprised": 14,  # brate sus rapid + flash
+    "emotion_angry": 16,    # brate rigide + flash agresiv
+    "emotion_meltdown": 17,  # agitatie intensa: brate + pivot + fata/spate
 }
 
 _PCM_GREETING_ACTIONS = (
@@ -1478,50 +1415,9 @@ _PCM_GREETING_ACTIONS = (
     "stable_greeting",
 )
 
-# Pas 3 optional: aceeasi idee ca VISION_ID_TO_ACTION pe PC dar fara broker —
-# clasa HuskyLens (numar intreg) -> cod cmd hub (vezi main.py Pybricks). Dict gol = dezactivat.
-HUSKY_ID_TO_CMD = {
-    # exemplu: gesturi invatate cu ID fixe in Object Classification
-    # 20: 5,
-    # 21: 6,
-}
-
-_HUSKY_LAST_MOTION_ID = 0
-_HUSKY_LAST_MOTION_TICK = 0
-_HUSKY_CMD_COOLDOWN_MS = 3500
-
-
-def _try_husky_local_cmd(obj_cls_id):
-    """Daca obiectul vazut e in HUSKY_ID_TO_CMD, pulseaza _pending_cmd cu debounce."""
-    global _pending_cmd, _pending_cmd_until_ms
-    global _HUSKY_LAST_MOTION_ID, _HUSKY_LAST_MOTION_TICK
-
-    if obj_cls_id <= 0 or not HUSKY_ID_TO_CMD:
-        return
-    mapped = HUSKY_ID_TO_CMD.get(obj_cls_id)
-    if mapped is None:
-        return
-    if not isinstance(mapped, int) or mapped < 0 or mapped > 255:
-        return
-    now = time.ticks_ms()
-    if (
-        obj_cls_id == _HUSKY_LAST_MOTION_ID
-        and time.ticks_diff(now, _HUSKY_LAST_MOTION_TICK) < _HUSKY_CMD_COOLDOWN_MS
-    ):
-        return
-    _HUSKY_LAST_MOTION_ID = obj_cls_id
-    _HUSKY_LAST_MOTION_TICK = now
-    ms = _CMD_HOLD_MS_LONG if mapped == 1 else _CMD_HOLD_MS
-    _pending_cmd = mapped
-    _pending_cmd_until_ms = time.ticks_add(now, ms)
-    print(">>> HuskyLens ID", obj_cls_id, "-> local hub cmd=", mapped, "hold_ms=", ms)
-
 # ==========================================
-# 2. Camera + timere bucla
+# 2. Timere bucla
 # ==========================================
-i2c = SoftI2C(scl=Pin(22), sda=Pin(21))
-hl = None
-huskylens_pornit = False
 timp_start = time.ticks_ms()
 ultimul_timp_mqtt = time.ticks_ms()
 last_hub_connected = None
@@ -1533,7 +1429,8 @@ t_last_hub_print = time.ticks_ms()
 # ==========================================
 wlan = network.WLAN(network.STA_IF)
 wlan.active(True)
-time.sleep_ms(300)
+# Trezirea radio poate bloca; mentinem heartbeat LPF2 in paralel.
+_spin_hub(pr, 150)
 mqtt = None
 MQTT_RETRY_MS = 5000
 _last_mqtt_retry_ms = time.ticks_ms()
@@ -1682,7 +1579,7 @@ def _mqtt_control_cb(topic, msg):
         elif isinstance(resolved, int) and resolved > 0:
             if resolved == 12:
                 ms = _CMD_HOLD_MS_BREATHING_SHOW_MS
-            elif resolved in (13, 14, 15):
+            elif resolved in (13, 14, 15, 16, 17):
                 ms = _CMD_HOLD_MS_EMOTION_MS
             elif resolved == 1:
                 ms = _CMD_HOLD_MS_LONG
@@ -1699,7 +1596,11 @@ def _mqtt_control_cb(topic, msg):
 def _mqtt_connect(pr_sensor):
     global mqtt, _last_mqtt_retry_ms
     _last_mqtt_retry_ms = time.ticks_ms()
+    ticker_on = False
     try:
+        if pr_sensor is not None:
+            # MQTT connect/subscribe poate bloca >1s; mentinem LPF2 heartbeat in paralel.
+            ticker_on = lpf2_ticker_start(pr_sensor)
         mqtt = MQTTClient(CLIENT_ID, MQTT_BROKER)
         mqtt.connect()
         if pr_sensor is not None:
@@ -1707,12 +1608,18 @@ def _mqtt_connect(pr_sensor):
         mqtt.set_callback(_mqtt_control_cb)
         mqtt.subscribe(TOPIC_ROBOT_CONTROL)
         mqtt.subscribe(TOPIC_ROBOT_SPEAK)
+        if pr_sensor is not None:
+            _spin_hub(pr_sensor, 30)
         print(">>> MQTT CONECTAT la broker", MQTT_BROKER, "(vision/tags + robot/control + robot/speak)")
         return True
     except Exception as e:
         print("Eroare MQTT:", e)
         mqtt = None
         return False
+    finally:
+        if ticker_on:
+            time.sleep_ms(80)
+            lpf2_ticker_stop()
 
 if not wlan.isconnected():
     print("Se conecteaza la WiFi: " + WIFI_SSID + " ...")
@@ -1739,11 +1646,9 @@ if wlan.isconnected():
         print(">>> Voce robot: seteaza GEMINI_API_KEY in secrets.py pe ESP (aceeasi cheie ca pe PC).")
     _spin_hub(pr, 50)
     _mqtt_connect(pr)
-    # Salut autonom: PCM din fisier (fara TTS Gemini la boot — stabil pe LPF2).
-    try:
-        tri_play_greeting_pcm(pr, "greeting.pcm")
-    except Exception as _e:
-        print(">>> Salut PCM esuat:", _e)
+    # Salut PCM la boot DEZACTIVAT: I2S audio citeste 170KB din flash si blocheaza
+    # pr.process() suficient cat LPF2 sa moara. PC-ul trimite salutul via Audio TCP.
+    print(">>> Salut PCM la boot skip (LPF2 stabil). PC trimite salut via Audio TCP.")
 else:
     try:
         st = wlan.status()
@@ -1775,13 +1680,16 @@ def _expire_and_push_hub_cmd():
             # Hub deconectat: prelungim deadline-ul cu 1s ca sa nu expire in gol
             if time.ticks_diff(now, _pending_cmd_until_ms) >= 0:
                 _pending_cmd_until_ms = time.ticks_add(now, 1000)
+    # HuskyLens a fost eliminat; mentinem explicit canalul "obj" la 0 ca Hub-ul
+    # sa poata citi stabil pr.call("obj") fara payload vechi/incomplet.
+    pr.update_channel("obj", 0)
     pr.update_channel("cmd", _pending_cmd)
 
 
 def _robot_loop_body(connected, tts_pr_sensor, end_delay_ms):
-    """O iteratie: MQTT, voce, hub debug, HuskyLens, update canal. tts_pr_sensor=None daca heartbeat e async."""
+    """O iteratie: MQTT, voce, hub debug, update canal. tts_pr_sensor=None daca heartbeat e async."""
     global mqtt, pending_speak, speak_queue, pcm_breathing_queue, pending_voice_tcp, pending_play_greeting, last_hub_connected, hub_fail_cycles, t_last_hub_print
-    global timp_start, huskylens_pornit, hl, ultimul_timp_mqtt, _last_mqtt_retry_ms
+    global ultimul_timp_mqtt, _last_mqtt_retry_ms
     global _PAS4_HUB_LINK_OK, _BREATHE_GUARD_UNTIL_MS, _pattern_seq_events
 
     _PAS4_HUB_LINK_OK = bool(connected)
@@ -1888,49 +1796,6 @@ def _robot_loop_body(connected, tts_pr_sensor, end_delay_ms):
             t_last_hub_print = time.ticks_ms()
     else:
         hub_fail_cycles = 0
-
-    if not huskylens_pornit and time.ticks_diff(time.ticks_ms(), timp_start) > 2000:
-        print("Incerc conectarea camerei HuskyLens...")
-        try:
-            if tts_pr_sensor is not None:
-                _spin_hub(pr, 30)
-            hl = HuskyLens(i2c)
-            if tts_pr_sensor is not None:
-                _spin_hub(pr, 30)
-            hl.set_alg(ALGORITHM_OBJECT_CLASSIFICATION)
-            if tts_pr_sensor is not None:
-                _spin_hub(pr, 30)
-            print(">>> HuskyLens OK! <<<")
-            huskylens_pornit = True
-        except Exception as e:
-            print(">>> HuskyLens init esuat:", e)
-            timp_start = time.ticks_ms()
-
-    if huskylens_pornit and hl:
-        obj = 0
-        try:
-            blocks = hl.get_blocks()
-            if blocks:
-                obj = blocks[0].ID
-                print(">>> DEBUG LOCAL: Clasificare obiect ID:", obj)
-                _try_husky_local_cmd(obj)
-
-                timp_curent = time.ticks_ms()
-                if mqtt and time.ticks_diff(timp_curent, ultimul_timp_mqtt) > 2000:
-                    payload = json.dumps({"id": obj})
-                    try:
-                        mqtt.publish(TOPIC_VISION_TAGS, payload.encode())
-                        print("-> vision/tags:", payload)
-                        tri_beep_stereo_ms(70)
-                    except Exception:
-                        pass
-                    ultimul_timp_mqtt = timp_curent
-
-        except OSError as e:
-            print(">>> EROARE CABLURI CAMERA:", e)
-            time.sleep_ms(500)
-
-        pr.update_channel("obj", obj)
 
     _expire_and_push_hub_cmd()
 

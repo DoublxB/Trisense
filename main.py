@@ -16,6 +16,8 @@ Canal PupRemote "cmd" (uint8) — trebuie aliniat cu main_robot.py pe ESP:
   13  emotie trist: brate jos lent, puls lumina slab (Act. 6 Guess the Emotion)
   14  emotie uimit:  brate sus rapid, flash lumina (Act. 6 Guess the Emotion)
   15  emotie fericit: dans brate + roti fata/spate (Act. 6 Guess the Emotion)
+  16  emotie furie: brate rigide + „sprancene” pe ecran + flash rapid (Act. 6 Guess the Emotion)
+  17  emotie meltdown: agitatie intensa, brate ample, pivot + fata/spate (Act. 6 Guess the Emotion)
 
 Montaj fizic diferit → poti folosi invertire pe un Motor sau schimba C/D sus/jos.
 
@@ -167,6 +169,13 @@ def breathe_out_pose(arm_left, arm_right):
     _arms_home(arm_left, arm_right)
 
 
+def breathe_in_with_matrix(arm_left, arm_right, hub, total_ms=900):
+    """Inspiratie scurta pentru comanda simpla/follow-pattern: brate + val pe matrice."""
+    breathe_in_pose(arm_left, arm_right)
+    _matrix_wave_inspire(hub, total_ms)
+    _matrix_clear(hub)
+
+
 def emotion_happy_routine(arm_left, arm_right, w_left, w_right, hub):
     """Cmd 15 — bucurie: smiley face + dans brate + roti fata/spate."""
     _draw_smiley(hub)
@@ -227,6 +236,88 @@ def emotion_surprised_routine(arm_left, arm_right, hub):
     hub.display.off()
 
 
+def emotion_angry_routine(arm_left, arm_right, hub):
+    """Cmd 16 — furie: pumni coordonati + sprancene care coboara agresiv."""
+
+    def _draw_angry_brows(drop, b=100):
+        # drop 0..2: sprancenele "cad" progresiv peste ochi.
+        hub.display.off()
+        # Spranceana stanga (diagonala coboratoare spre centru)
+        hub.display.pixel(min(4, 0 + drop), 0, b)
+        hub.display.pixel(min(4, 0 + drop), 1, b)
+        hub.display.pixel(min(4, 1 + drop), 2, b - 15)
+        # Spranceana dreapta (simetrica)
+        hub.display.pixel(min(4, 0 + drop), 4, b)
+        hub.display.pixel(min(4, 0 + drop), 3, b)
+        hub.display.pixel(min(4, 1 + drop), 2, b - 15)
+        # Gura incruntata
+        hub.display.pixel(3, 1, 75)
+        hub.display.pixel(3, 2, 55)
+        hub.display.pixel(3, 3, 75)
+
+    # Intro: brate "pregatite de pumn"
+    arm_left.run_target(_SPEED * 2, _ANGLE_SIDE, then=Stop.HOLD, wait=False)
+    arm_right.run_target(_SPEED * 2, -_ANGLE_SIDE, then=Stop.HOLD, wait=True)
+
+    # 3 cicluri de "pumni" coordonati cu sprancene care coboara si revin.
+    for _ in range(3):
+        for drop in (0, 1, 2):
+            _draw_angry_brows(drop)
+            # Ambii pumni in fata (coordonat)
+            arm_left.run_target(_SPEED * 2, _ANGLE_DANCE + 20, then=Stop.HOLD, wait=False)
+            arm_right.run_target(_SPEED * 2, _ANGLE_DANCE + 20, then=Stop.HOLD, wait=True)
+            wait(130)
+            # Retragere
+            arm_left.run_target(_SPEED * 2, -(_ANGLE_SIDE - 10), then=Stop.HOLD, wait=False)
+            arm_right.run_target(_SPEED * 2, -(_ANGLE_SIDE - 10), then=Stop.HOLD, wait=True)
+            wait(120)
+        # Mic flash de "furie"
+        for row in range(5):
+            for col in range(5):
+                hub.display.pixel(row, col, 95)
+        wait(90)
+        hub.display.off()
+        wait(90)
+
+    _arms_home(arm_left, arm_right)
+    hub.display.off()
+
+
+def emotion_meltdown_routine(arm_left, arm_right, w_left, w_right, hub):
+    """Cmd 17 — meltdown: agitatie mare (brate ample + pivot + fata/spate)."""
+    hub.display.off()
+    # Puls vizual rapid pentru senzatie de „overload”.
+    for _ in range(2):
+        for row in range(5):
+            for col in range(5):
+                hub.display.pixel(row, col, 100)
+        wait(120)
+        hub.display.off()
+        wait(120)
+
+    # 3 cicluri de agitatie: brate sus/jos amplu + pivot + miscari fata/spate.
+    for _ in range(3):
+        arm_left.run_target(_SPEED * 2, _ANGLE_DANCE + 25, then=Stop.HOLD, wait=False)
+        arm_right.run_target(_SPEED * 2, -(_ANGLE_DANCE + 25), then=Stop.HOLD, wait=True)
+        wheels_turn_left(w_left, w_right)
+        wheels_turn_right(w_left, w_right)
+        wheels_forward(w_left, w_right)
+        wheels_backward(w_left, w_right)
+        arm_left.run_target(_SPEED * 2, -(_ANGLE_DANCE + 25), then=Stop.HOLD, wait=False)
+        arm_right.run_target(_SPEED * 2, _ANGLE_DANCE + 25, then=Stop.HOLD, wait=True)
+        # Flash scurt intre faze
+        for row in range(5):
+            for col in range(5):
+                hub.display.pixel(row, col, 90)
+        wait(90)
+        hub.display.off()
+        wait(90)
+
+    wheels_brake(w_left, w_right)
+    _arms_home(arm_left, arm_right)
+    hub.display.off()
+
+
 def breathing_show_routine(arm_left, arm_right, hub):
     """PAS 4 — ~10s: brațe + matrix; sunet inspir/expir doar PCM pe ESP dacă uplodat."""
     inh_ms = _BSHOW_INH_MS
@@ -269,39 +360,50 @@ def wheels_brake(w_left, w_right):
 
 
 def run_cmd(arm_left, arm_right, w_left, w_right, hub, code):
+    simple_cmd = False
     if code == 1:
         print("Dance!")
         dance_arms_and_wheels(arm_left, arm_right, w_left, w_right)
     elif code == 2:
         print("Repose")
         repose_pose(arm_left, arm_right)
+        simple_cmd = True
     elif code == 3:
         print("Left arm")
         left_arm_up_pose(arm_left, arm_right)
+        simple_cmd = True
     elif code == 4:
         print("Right arm")
         right_arm_up_pose(arm_left, arm_right)
+        simple_cmd = True
     elif code == 5:
         print("Breathe in")
-        breathe_in_pose(arm_left, arm_right)
+        breathe_in_with_matrix(arm_left, arm_right, hub)
+        simple_cmd = True
     elif code == 6:
         print("Breathe out")
         breathe_out_pose(arm_left, arm_right)
+        simple_cmd = True
     elif code == 7:
         print("Drive FWD")
         wheels_forward(w_left, w_right)
+        simple_cmd = True
     elif code == 8:
         print("Drive back")
         wheels_backward(w_left, w_right)
+        simple_cmd = True
     elif code == 9:
         print("Turn L")
         wheels_turn_left(w_left, w_right)
+        simple_cmd = True
     elif code == 10:
         print("Turn R")
         wheels_turn_right(w_left, w_right)
+        simple_cmd = True
     elif code == 11:
         print("Wheels stop")
         wheels_brake(w_left, w_right)
+        simple_cmd = True
     elif code == 12:
         print("Breathing SHOW")
         breathing_show_routine(arm_left, arm_right, hub)
@@ -314,8 +416,19 @@ def run_cmd(arm_left, arm_right, w_left, w_right, hub, code):
     elif code == 15:
         print("Emotion HAPPY")
         emotion_happy_routine(arm_left, arm_right, w_left, w_right, hub)
+    elif code == 16:
+        print("Emotion ANGRY")
+        emotion_angry_routine(arm_left, arm_right, hub)
+    elif code == 17:
+        print("Emotion MELTDOWN")
+        emotion_meltdown_routine(arm_left, arm_right, w_left, w_right, hub)
     else:
         pass
+
+    # Cerinta jocuri: dupa orice actiune simpla revenim explicit in pozitia initiala a bratelor.
+    if simple_cmd:
+        wait(350)
+        _arms_home(arm_left, arm_right)
 
 
 def main():
@@ -331,7 +444,7 @@ def main():
     while True:
         # (Re)initializare PupRemote — daca ESP se deconecteaza, refacem canalele.
         try:
-            pr = PUPRemoteHub(SENSOR_PORT)
+            pr = PUPRemoteHub(SENSOR_PORT, max_packet_size=16)
             pr.add_channel("obj", to_hub_fmt="b")
             pr.add_channel("cmd", to_hub_fmt="b")
             print("LPF2 init OK — astept comenzi")

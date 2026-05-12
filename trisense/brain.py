@@ -25,6 +25,7 @@ from trisense.config import (
     ESP_SPEAK_MAX_CHARS,
     TOPIC_ROBOT_CONTROL,
     TRISENSE_TTS_OVER_TCP,
+    VOICE_TCP_PORT,
     vision_id_to_action_map,
 )
 from trisense.memory_store import MemoryStore
@@ -79,6 +80,25 @@ class TriSenseBrain:
         # Act. 7
         self._pattern_sequence: list[str] = []
         self._pattern_step: int = 0
+
+    def _publish_listen(self, *, duration_ms: int = 10000) -> bool:
+        """Cere robotului sa porneasca ascultarea microfonului fara script manual."""
+        host = (os.environ.get("PC_VOICE_IP") or "").strip()
+        if not host:
+            logger.warning("Act.6 auto-listen: PC_VOICE_IP lipseste in .env; nu pot trimite listen automat.")
+            return False
+        payload = {
+            "listen": True,
+            "pc_host": host,
+            "voice_port": int(VOICE_TCP_PORT),
+            "duration_ms": int(duration_ms),
+        }
+        ok = self._publish(payload)
+        if ok:
+            logger.info("Act.6 auto-listen trimis: %s", payload)
+        else:
+            logger.warning("Act.6 auto-listen nu s-a putut publica (MQTT offline?): %s", payload)
+        return ok
 
     def _synthesize_tcp_pcm(self, msg: str) -> tuple[bytes, int]:
         """PCM mono pentru TCP către ESP: după env TRISENSE_TTS_PCM_SOURCE (Cloud vs Gemini)."""
@@ -384,6 +404,10 @@ class TriSenseBrain:
         ):
             return "left_arm"
 
+        # Comanda directa emotie (fara joc): "meltdown"
+        if any(kw in bl_ascii for kw in ("meltdown", "breakdown", "criza", "panic", "panicat")):
+            return "emotion_meltdown"
+
         # Act. 6 — Guess the Emotion
         if "guess" in words and (
             "emotion" in words or "emotia" in bl_ascii or "emotie" in bl_ascii or "feeling" in words
@@ -399,6 +423,23 @@ class TriSenseBrain:
             return "follow_pattern"
         if cq and ("followpattern" in cq or "urmeazatiparul" in cq or "urmeazamodelul" in cq):
             return "follow_pattern"
+
+        # Demo juriu: salut fix + braț, pivot dreapta, braț, pivot stânga
+        if "hello to the judges" in bl or "salut juriu" in bl_ascii or "salut juriului" in bl_ascii:
+            return "judges_demo"
+        if ("judges" in words or "judge" in words) and (
+            "hello" in words or "hi" in words or "everyone" in words or "demo" in words
+        ):
+            return "judges_demo"
+        if cq and (
+            "hellotothejudges" in cq
+            or "hellojudges" in cq
+            or "judgeshello" in cq
+            or "judgesdemo" in cq
+            or "demojudges" in cq
+            or "demopentrujuriu" in cq
+        ):
+            return "judges_demo"
 
         return None
 
@@ -451,6 +492,7 @@ class TriSenseBrain:
                 "turn_right": f"Turning right.",
                 "guess_emotion": f"Let's play Guess the Emotion, {name}!",
                 "follow_pattern": f"Let's play Follow the Pattern, {name}!",
+                "emotion_meltdown": f"Okay, {name}, meltdown emotion!",
             }.get(action, f"Okay, {name}!")
             # Act. 6 — Guess the Emotion
             if action == "guess_emotion":
@@ -459,6 +501,9 @@ class TriSenseBrain:
             # Act. 7 — Follow the Pattern
             if action == "follow_pattern":
                 self._start_follow_pattern(name, robot_only=robot_only, esp_ip=esp_ip)
+                return
+            if action == "judges_demo":
+                self._run_judges_demo(robot_only=robot_only, esp_ip=esp_ip)
                 return
             if action == "breathing_show":
                 # PAS4: ghid vocal prin Audio TCP din PC (pyttsx3/Vertex → PCM), fără laptop,
@@ -545,17 +590,60 @@ class TriSenseBrain:
         )
 
     # ------------------------------------------------------------------
+    # Demo juriu — voce fixă + brațe / rotiri scurte (Hello to the Judges)
+    # ------------------------------------------------------------------
+
+    def _run_judges_demo(self, *, robot_only: bool, esp_ip: Optional[str]) -> None:
+        """
+        Secvență pentru prezentare: mesaj introductor, braț drept sus, rotire dreapta,
+        braț stâng sus, rotire stânga; apoi repaus brațe.
+        Declanșare vocală: „Hello to the judges”, „hello judges”, „judges demo”, etc.
+        """
+        intro = "Hello everyone! I'm TriSense, the first LEGO robotic therapist."
+        logger.info("Judges demo: intro + gesturi (numele copilului rămâne în memorie pentru dialog).")
+        vtrim = intro.strip()
+        if len(vtrim) > ESP_SPEAK_MAX_CHARS:
+            vtrim = vtrim[: max(0, ESP_SPEAK_MAX_CHARS - 3)] + "..."
+        intro_ok = self._announce(
+            vtrim,
+            robot_only=robot_only,
+            esp_ip=esp_ip,
+            laptop_speaker=False,
+            mqtt_speak_publish=False,
+            wait_for_playback=True,
+        )
+        if not intro_ok:
+            logger.warning(
+                "Judges demo: intro nu a ajuns pe difuzor (TCP/MQTT sau IP lipsă); continuă gesturile."
+            )
+        time.sleep(0.35)
+        self._publish({"action": "right_arm"})
+        time.sleep(2.5)
+        self._publish({"action": "turn_right"})
+        time.sleep(1.2)
+        self._publish({"action": "left_arm"})
+        time.sleep(2.5)
+        self._publish({"action": "turn_left"})
+        time.sleep(1.2)
+        self._publish({"action": "wheels_stop"})
+        time.sleep(0.15)
+        self._publish({"action": "repose"})
+        logger.info("Judges demo terminat.")
+
+    # ------------------------------------------------------------------
     # Act. 6 — Guess the Emotion
     # ------------------------------------------------------------------
 
     def _start_guess_emotion(self, name: str, *, robot_only: bool, esp_ip: Optional[str]) -> None:
         """Robot alege o emotie random, o arata cu gesturi, cere copilului sa ghiceasca."""
-        emotions = ["happy", "sad", "surprised"]
+        emotions = ["happy", "sad", "surprised", "angry", "meltdown"]
         self._current_emotion = random.choice(emotions)
         emotion_action = {
             "happy":     "emotion_happy",
             "sad":       "emotion_sad",
             "surprised": "emotion_surprised",
+            "angry":     "emotion_angry",
+            "meltdown":  "emotion_meltdown",
         }[self._current_emotion]
         logger.info("Act.6 [1/4]: emotie aleasa = %s", self._current_emotion)
 
@@ -566,13 +654,21 @@ class TriSenseBrain:
 
         logger.info("Act.6 [3/4]: trimit cmd %s la Hub si astept rutina...", emotion_action)
         self._publish({"action": emotion_action})
-        emotion_dur = {"emotion_happy": 14.0, "emotion_sad": 8.0, "emotion_surprised": 7.0}
+        emotion_dur = {
+            "emotion_happy": 14.0,
+            "emotion_sad": 8.0,
+            "emotion_surprised": 7.0,
+            "emotion_angry": 8.0,
+            "emotion_meltdown": 10.0,
+        }
         time.sleep(emotion_dur.get(emotion_action, 10.0))
 
-        question = f"What emotion was I showing, {name}? Happy, sad, or surprised?"
+        question = f"What emotion was I showing, {name}? Happy, sad, surprised, angry, or meltdown?"
         logger.info("Act.6 [4/4]: redau intrebarea pe robot...")
         self._say(question, robot_only=robot_only, esp_ip=esp_ip)
-        logger.info("Act.6: gata, astept raspunsul copilului in proxima tura.")
+        # Porneste automat ascultarea microfonului, ca sa nu mai fie nevoie de script manual.
+        self._publish_listen(duration_ms=10000)
+        logger.info("Act.6: gata, astept raspunsul copilului (listen auto trimis).")
         self.state = RobotState.GUESS_EMOTION
         logger.info("Act.6 GUESS_EMOTION pornit; emotie aleasa: %s", self._current_emotion)
 
@@ -588,6 +684,10 @@ class TriSenseBrain:
             detected = "sad"
         elif any(kw in bl for kw in ("surprised", "uimit", "uimita", "mirat", "surprins")):
             detected = "surprised"
+        elif any(kw in bl for kw in ("angry", "furie", "furios", "furioasa", "nervos", "enervat")):
+            detected = "angry"
+        elif any(kw in bl for kw in ("meltdown", "criza", "panic", "panicat", "breakdown")):
+            detected = "meltdown"
 
         expected = self._current_emotion or "happy"
         if detected == expected:
@@ -618,7 +718,8 @@ class TriSenseBrain:
 
     def _start_follow_pattern(self, name: str, *, robot_only: bool, esp_ip: Optional[str]) -> None:
         """Robot arata secventa de 3 miscari, cere copilului sa o repete pas cu pas."""
-        steps = self._PATTERN_STEPS
+        # Randomizeaza combinatia la fiecare runda (permutare pe cei 3 pasi demo).
+        steps = random.sample(self._PATTERN_STEPS, k=len(self._PATTERN_STEPS))
         self._pattern_sequence = [s[0] for s in steps]
         self._pattern_step = 0
 
@@ -635,6 +736,8 @@ class TriSenseBrain:
 
         ask = f"Your turn! Step 1?"
         self._say(ask, robot_only=robot_only, esp_ip=esp_ip)
+        # Auto-listen la inceputul secventei (pasul 1), fara trigger manual.
+        self._publish_listen(duration_ms=10000)
         self.state = RobotState.FOLLOW_PATTERN
         logger.info("Act.7 FOLLOW_PATTERN pornit; secventa=%s", self._pattern_sequence)
 
@@ -662,6 +765,8 @@ class TriSenseBrain:
                 step_label = self._PATTERN_STEPS[self._pattern_step][1]
                 response = f"Correct! Step {self._pattern_step + 1}: {step_label}?"
                 self._say(response, robot_only=robot_only, esp_ip=esp_ip)
+                # Auto-listen dupa intrebarea pentru pasul urmator.
+                self._publish_listen(duration_ms=10000)
         else:
             if expected:
                 exp_label = next(
@@ -677,6 +782,9 @@ class TriSenseBrain:
                 self._pattern_step = 0
                 self._pattern_sequence = []
             self._say(response, robot_only=robot_only, esp_ip=esp_ip)
+            # Daca secventa continua (nu am resetat la SELECTIE_JOC), repornim auto-listen.
+            if self.state == RobotState.FOLLOW_PATTERN:
+                self._publish_listen(duration_ms=10000)
         logger.info("Act.7 pas=%d/%d; detectat=%s, expected=%s", self._pattern_step, total, action, expected)
 
     def _run_primul_salut(self) -> None:

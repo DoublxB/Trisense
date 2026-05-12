@@ -76,16 +76,22 @@ def _handle_client(conn: socket.socket, addr: Any, brain: TriSenseBrain) -> None
             return
         logger.info("Voce TCP: primesc %s octeti PCM de la %s (asteapta ~10s inregistrare ESP)...", length, addr)
         _flush_log_output()
+        conn.settimeout(20.0)
         data = bytearray()
         while len(data) < length:
-            chunk = conn.recv(min(65536, length - len(data)))
+            try:
+                chunk = conn.recv(min(65536, length - len(data)))
+            except OSError:
+                break
             if not chunk:
                 break
             data += chunk
+        conn.settimeout(None)
         if len(data) < length:
-            logger.warning("Voce TCP: date incomplete %s/%s", len(data), length)
+            logger.warning("Voce TCP: date incomplete %s/%s — proceseaza ce s-a primit", len(data), length)
             _flush_log_output()
-            return
+            if len(data) < 200:
+                return
         logger.info("Voce TCP: PCM primit %s B -> STT Gemini...", len(data))
         _flush_log_output()
         wav = pcm16_mono_16k_to_wav(bytes(data))
