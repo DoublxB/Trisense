@@ -123,7 +123,7 @@ _audio_play_srv_ok = False
 _TTS_STREAM_CHUNK_BYTES = 2048
 _TTS_STEREO_WORK = bytearray(2048 * 4)
 # ~58% full scale: reduce clipping si crackling fara a pierde claritatea vocii
-_TTS_GAIN_Q15 = 19000
+_TTS_GAIN_Q15 = int(32767 * 0.75)  # ~75% nivel digital (Unity = 32767)
 # PAS 4: gain digital maxim recomandat (32767 ~= Q15 unity per esantion).
 _BREATHE_PCM_GAIN_Q15 = 32767
 # Mono PAS4 mic; stereo în felii foarte mici + multe pr.process() (după Audio TCP lung + I2S).
