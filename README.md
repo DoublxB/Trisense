@@ -1,247 +1,257 @@
-# TriSense - ghid simplu pentru echipa
+# TriSense - simple guide for the team
 
-TriSense este un robot prietenos care:
-- vede cu camera (HuskyLens),
-- vorbeste cu voce prietenoasa,
-- recunoaste un copil si piese LEGO,
-- raspunde printr-un "creier" care ruleaza pe laptop.
+TriSense is a friendly robot that:
 
-## Ce face proiectul, pe scurt
+- sees with the camera (HuskyLens),
+- speaks in a friendly voice,
+- recognizes a child and LEGO pieces,
+- responds through a "brain" running on the laptop.
 
-Imagineaza-ti TriSense ca un joc in 2 parti:
-- **Robotul (ESP32)** = "corpul" (camera, sunet, conexiune cu hub-ul LEGO).
-- **Laptopul (Python + trisense)** = "creierul" (gandeste raspunsul si decide ce zice robotul).
+## What the project does, in a nutshell
 
-Cand camera vede ceva:
-1. Robotul trimite un mesaj.
-2. Creierul de pe laptop il intelege.
-3. TriSense raspunde cu un mesaj scurt si pozitiv.
+Imagine TriSense as a two-part game:
 
-## Componente importante
+- The robot (ESP32) = the "body" (camera, sound, connection to the LEGO hub).
+- The laptop (Python + trisense) = the "brain" (thinks of the answer and decides what the robot says).
 
-| Componenta | Ce face (pe intelesul tuturor) |
-|------------|---------------------------------|
-| `main_robot.py` | Programul principal de pe robot (camera + audio + MQTT) |
-| `run_trisense_brain.py` + `trisense/` | Programul de pe laptop care "gandeste" raspunsul |
-| `run_voice_dialog.py` + `trisense/voice_tcp_server.py` | Varianta in care robotul trimite vocea la laptop (server TCP pentru audio) |
-| `RECOVERY.md` | Ce faci daca upload-ul/repl nu merge |
-| `HARDWARE_LMS_ESP32_ANTONS.md` | Note hardware utile pentru placa LMS-ESP32 |
+When the camera sees something:
+
+- The robot sends a message.
+- The brain on the laptop understands it.
+- TriSense responds with a short and positive message.
+
+## Important components
+
+| compound | What does he do (in everyone's understanding) |
+|----------|-----------------------------------------------|
+| `main_robot.py` | The main program on the robot (camera + audio + MQTT) |
+| `run_trisense_brain.py` + `trisense/` | The laptop program that "thinks" the answer |
+| `run_voice_dialog.py` + `trisense/voice_tcp_server.py` | The variant in which the robot sends the voice to the laptop (TCP server for audio) |
+| `RECOVERY.md` | What to do if the upload/repl doesn't work |
+| `HARDWARE_LMS_ESP32_ANTONS.md` | Useful hardware notes for the LMS-ESP32 board |
 
 ## Hardware LMS-ESP32 (Anton's Mindstorms)
 
-Documentatie oficiala:
-- **Pinout:** <https://www.antonsmindstorms.com/docs/lms-esp32-v2-pinout/>
-- **Getting started:** <https://www.antonsmindstorms.com/docs/getting-started-with-your-new-lms-esp32v2-board/>
-- **Toate placile de expansiune:** <https://www.antonsmindstorms.com/doc-category/expansion-board-documentation/>
+Official documentation:
 
-## Schema pini (TriSense)
+- Pinout: <https://www.antonsmindstorms.com/docs/lms-esp32-v2-pinout/>
+- Getting started: <https://www.antonsmindstorms.com/docs/getting-started-with-your-new-lms-esp32v2-board/>
+- All expansion cards: <https://www.antonsmindstorms.com/doc-category/expansion-board-documentation/>
 
-Maparea folosita in codul curent (`main_robot.py`):
+## Pin diagram (TriSense)
 
-| Modul | Semnal | GPIO | Observatii |
-|------|--------|------|------------|
-| Hub LEGO (LPF2/PUPRemote) | UART catre hub | `7/8` | Linie dedicata LMS-ESP32 pentru legatura cu hub-ul LEGO |
-| HuskyLens (I2C) | `SCL` | `22` | `SoftI2C(scl=Pin(22), sda=Pin(21))` |
-| HuskyLens (I2C) | `SDA` | `21` | Implicit pentru camera in proiect |
-| Difuzor I2S (MAX98357) | `BCLK` | `14` | Clock audio I2S (`SCK` pe microfon) |
-| Difuzor I2S (MAX98357) | `LRC/WS` | `15` | Word select I2S |
-| Difuzor I2S (MAX98357) | `DIN` | `26` | Date audio catre amplificator |
-| Amplificator | `EN` | `32` | Activare amplificator |
-| Microfon I2S (INMP441) | `SD` | `33` | Date microfon (RX), pe acelasi `SCK/BCLK` si `WS/LRC` |
+Mapping used in the current code (`main_robot.py`):
 
-Schema rapida:
+| Module | Signal | GPIO | Observations |
+|--------|--------|------|---------------|
+| LEGO Hub (LPF2/PUPRemote) | UART to hub | 7/8 | Dedicated LMS-ESP32 line for connection to the LEGO hub |
+| HuskyLens (I2C) | SCL | 22 | SoftI2C(scl=Pin(22), sda=Pin(21)) |
+| HuskyLens (I2C) | SDA | 21 | Default for the room in the project |
+| I2S speaker (MAX98357) | BCLK | 14 | I2S audio clock (SCK on microphone) |
+| I2S speaker (MAX98357) | LRC/WS | 15 | Word select I2S |
+| I2S speaker (MAX98357) | FROM | 26 | Audio data to amplifier |
+| Amplifier | EN | 32 | Amplifier activation |
+| I2S Microphone (INMP441) | SD | 33 | Microphone data (RX), on the same SCK/BCLK and WS/LRC |
 
-```text
+Quick diagram:
+
+```
 LMS-ESP32
-├─ Hub LEGO (UART): GPIO 7/8
-├─ HuskyLens I2C: SCL=22, SDA=21
+├ ─ LEGO Hub (UART): GPIO 7/8
+├ ─ HuskyLens I2C: SCL=22, SDA=21
 └─ Audio
-   ├─ MAX98357 (speaker): BCLK=14, LRC=15, DIN=26, EN=32
-   └─ INMP441 (mic): SD=33 (share SCK/BCLK=14, WS/LRC=15)
+   ├ ─ MAX98357 (speaker): BCLK=14, LRC=15, DIN=26, EN=32
+   └─ INMP441 (small): SD=33 (share SCK/BCLK=14, WS/LRC=15)
 ```
 
-Nota: evita schimbarea pinilor `7/8` daca legatura cu hub-ul functioneaza; sunt critici pentru handshake LPF2 pe LMS-ESP32.
+Note: avoid changing pins 7/8 if the connection to the hub works; they are critical for the LPF2 handshake on the LMS-ESP32.
 
-## Screenshot cablaj simulator (de completat)
+## Simulator wiring screenshot (to be completed)
 
-Adauga aici imaginea cu cablajul vizual din simulator:
+Add here the image with the visual wiring from the simulator:
 
-```md
-![Cablaj TriSense in simulator](./docs/simulator-cablaj.png)
+```markdown
+![TriSense wiring in simulator](./docs/simulator-wiring.png)
 ```
 
-Checklist rapid pentru poza:
-- sa se vada clar placa LMS-ESP32;
-- sa se vada legaturile pentru HuskyLens, microfon si difuzor;
-- sa se vada etichetele pinilor (GPIO).
+Quick checklist for the picture:
 
-Poti crea folderul `docs/` si sa pui screenshot-ul acolo.
+- to clearly see the LMS-ESP32 board;
+- to see the connections for HuskyLens, microphone and speaker;
+- to see the pin labels (GPIO).
+
+You can create the docs/ folder and put the screenshot there.
 
 ## MQTT (ESP32 <-> PC)
 
-| Topic | Directie | Continut |
-|-------|----------|----------|
-| `vision/tags` | ESP32 -> broker -> PC | JSON `{"id": N}` (clasa HuskyLens: `1` = fata, `2+` = obiecte LEGO) |
-| `robot/control` | PC -> broker -> ESP32 | JSON comenzi (`speak`, `listen`, `pc_host`, `voice_port`, `duration_ms`) |
-| `robot/speak` | PC -> broker -> ESP32 | Mesaj retained de salut/mesaj scurt pentru TTS pe robot |
+| Topical | Direction | Content |
+|---------|-----------|---------|
+| `vision/tags` | ESP32 -> broker -> PC | JSON {"id": N} (class HuskyLens: 1 = face, 2+ = LEGO objects) |
+| `robot/control` | PC -> broker -> ESP32 | JSON commands (speak, listen, pc_host, voice_port, duration_ms) |
+| `robot/speak` | PC -> broker -> ESP32 | Retained greeting message/short message for TTS on the robot |
 
-Nota: in `main_robot.py`, MQTT este non-blocking (`check_msg()`), iar bucla LPF2 ramane activa (`pr.process()` / `process_async`).
+Note: in main_robot.py, MQTT is non-blocking (check_msg()), and the LPF2 loop remains active (pr.process() / process_async).
 
-## Cerinte software (PC)
+## Software requirements (PC)
 
-- Python 3.10+ recomandat
-- Dependinte: `requirements.txt`
-- API key Gemini in `.env` (`GEMINI_API_KEY`)
+- Python 3.10+ recommended
+- Dependencies: requirements.txt
+- Gemini API key in .env (GEMINI_API_KEY)
 
-Instalare rapida:
+Quick installation:
 
 ```bash
 pip install -r requirements.txt
 copy .env.example .env
 ```
 
-Apoi completeaza in `.env`:
-- `GEMINI_API_KEY=...`
-- optional: `MQTT_BROKER`, `MQTT_PORT`, `MQTT_CLIENT_ID_PC`
-- optional voce: `VOICE_TCP_PORT`, `TRISENSE_TTS_PC`, `TRISENSE_TTS_OVER_TCP`
+Then fill in .env:
 
-## Rulare pe PC
+- GEMINI_API_KEY=...
+- optional: MQTT_BROKER, MQTT_PORT, MQTT_CLIENT_ID_PC
+- optional voice: VOICE_TCP_PORT, TRISENSE_TTS_PC, TRISENSE_TTS_OVER_TCP
 
-### 1) Mod standard (creier + MQTT)
+## Running on PC
+
+### 1) Standard mode (brain + MQTT)
 
 ```bash
 py run_trisense_brain.py
 ```
 
-Folosit pentru fluxul principal de interactiune prin MQTT.
+Used for the main interaction flow via MQTT.
 
-### 2) Mod dialog vocal (ESP mic -> PC STT/TTS)
+### 2) Voice dialog mode (small ESP -> PC STT/TTS)
 
 ```bash
 py run_voice_dialog.py
 ```
 
-Acest mod porneste si serverul TCP de voce (implicit port `8765`), care primeste audio de la ESP.
+This mode also starts the TCP voice server (default port 8765), which receives audio from the ESP.
 
-## Configurare ESP32
+## ESP32 configuration
 
-- Ruleaza firmware-ul din `main_robot.py` pe placa LMS-ESP32 (din folderul proiectului inlocuiesti COM7 dupa cum apare ESP-ul in Device Manager):
+Run the firmware from main_robot.py on the LMS-ESP32 board (from the project folder, replace COM7 as the ESP appears in Device Manager):
 
 ```bash
 python -m mpremote connect COM7 run main_robot.py
 ```
 
-- Creeaza `secrets.py` pe ESP (nu in repo) pentru chei/date locale (ex: `GEMINI_API_KEY`, `PC_VOICE_IP`).
-- Verifica reteaua Wi-Fi si brokerul MQTT din configurarea ESP.
+Create secrets.py on ESP (not in repo) for local keys/data (ex: GEMINI_API_KEY, PC_VOICE_IP).
 
-## Teste audio hardware (difuzor + microfon)
+Check the Wi-Fi network and MQTT broker in the ESP configuration.
 
-Inainte de test:
-- conecteaza placa pe portul serial corect (ex. `COM7`);
-- opreste orice rulare anterioara (`main_robot.py`) din acelasi port;
-- foloseste aceleasi legaturi din schema de pini (`BCLK=14`, `LRC=15`, `DIN=26`, `MIC_SD=33`).
+## Hardware audio tests (speaker + microphone)
 
-### Test difuzor (MAX98357)
+Before the test:
 
-Script: `testare/test_i2s_beep.py`  
-Rol: verifica strict lantul I2S TX + amplificator + difuzor (fara MQTT/HuskyLens).
+- connect the board to the correct serial port (e.g. COM7);
+- stops any previous running (main_robot.py) from the same port;
+- uses the same connections from the pinout (BCLK=14, LRC=15, DIN=26, MIC_SD=33).
 
-Rulare:
+### Speaker test (MAX98357)
+
+Script: test/test_i2s_beep.py Role: strictly checks the I2S TX + amplifier + speaker chain (without MQTT/HuskyLens).
+
+Running:
 
 ```bash
 python -m mpremote connect COM7 run testare/test_i2s_beep.py
 ```
 
-Ce trebuie sa vezi/auzi:
-- in serial: `I2S0 init OK 44100 STEREO`, apoi `write runda ...`;
-- pe difuzor: ton de test (beep/sine) repetat.
+What you need to see/hear:
 
-Daca e liniste:
-- verifica alimentarea modulului MAX98357 (`Vin`, `GND`);
-- verifica `DIN/BCLK/LRC` si pinul de enable;
-- testeaza cu alt difuzor sau leaga `SD/EN` modul direct la `3.3V` (cum mentioneaza scriptul).
+- in serial: I2S0 init OK 44100 STEREO, then write round ...;
+- on speaker: repeated test tone (beep/sine).
 
-### Test microfon + difuzor (INMP441 + MAX98357)
+If it is quiet:
 
-Script: `testare/test_mic_difuzor.py`  
-Rol: ruleaza pe rand testul de difuzor si apoi citirea microfonului I2S (nivel pe serial).
+- check the power supply of the MAX98357 module (Vin, GND);
+- check DIN/BCLK/LRC and enable pin;
+- test with another speaker or connect the SD/EN module directly to 3.3V (as the script mentions).
 
-Rulare:
+### Microphone + speaker test (INMP441 + MAX98357)
+
+Script: test/test_mic_difuzor.py Role: runs the speaker test and then the I2S microphone reading (serial level) in turn.
+
+Running:
 
 ```bash
 python -m mpremote connect COM7 run testare/test_mic_difuzor.py
 ```
 
-Ce trebuie sa vezi:
-- `OK: I2S TX scris. Ar trebui sa auzi un ton.` (difuzor);
-- `I2S RX OK. Incerc inregistrarea...` (microfon);
-- valori nenule pentru `Varf L`, `Varf R`, `max` cand vorbesti spre microfon.
+What you need to see:
 
-Interpretare rapida:
-- `Semnal foarte mic` -> problema pe `SD` microfon / ceas / alimentare;
-- `Semnal blocat/saturat` -> verificare `L/R`, `WS/SCK`, `GND comun`;
-- `Microfon pare activ.` -> test trecut.
+- OK: I2S TX written. You should hear a tone. (speaker);
+- I2S RX OK. Trying to record... (microphone);
+- non-zero values for Peak L, Peak R, max when speaking into the microphone.
 
-## Ce face fiecare fisier
+Quick interpretation:
 
-### Radacina proiectului
+- Very low signal -> problem on SD microphone / clock / power supply;
+- Blocked/saturated signal -> check L/R, WS/SCK, common GND;
+- Microphone seems active. -> test passed.
 
-| Fisier | Rol |
-|--------|-----|
-| `.env.example` | Exemplu de variabile de mediu pentru partea PC |
-| `.gitignore` | Fisiere/foldere excluse din git (ex: `.env`, `secrets.py`, `.venv`) |
-| `.micropico` | Configurare pentru upload/rulare MicroPython (tooling) |
-| `.vscode/extensions.json` | Extensii recomandate pentru VS Code/Cursor |
-| `.vscode/settings.json` | Setari locale editor pentru proiect |
-| `CONTEXT.md` | Fisier placeholder (momentan gol) |
-| `HARDWARE_LMS_ESP32_ANTONS.md` | Note hardware LMS-ESP32 folosite in lucrare |
-| `Project Report 2.0 3 Ways of Garbage (2).pdf` | Documentatie PDF de proiect |
-| `README.md` | Documentatia principala a proiectului |
-| `RECOVERY.md` | Pasi de recovery pentru REPL/mpremote |
-| `boot.py` | Script de boot pe ESP32 |
-| `lpf2.py` | Implementare/protocol LPF2 folosit in comunicarea LEGO |
-| `main.py` | Script principal pentru Hub LEGO (Pybricks) |
-| `main_robot.py` | Firmware principal pe ESP32 (camera, MQTT, audio, legatura hub) |
-| `memorie_copil.json` | Stocare locala pentru memoria conversatiilor |
-| `pupremote.py` | Biblioteca PUPRemote pentru legatura ESP32 <-> Hub LEGO |
-| `pyhuskylens.py` | Driver/interfata pentru camera HuskyLens |
-| `repl` | Marker local pentru mod de lucru REPL pe device |
-| `requirements.txt` | Dependinte Python pentru partea PC |
-| `run_esp32.ps1` | Script PowerShell pentru rulare `main_robot.py` prin mpremote |
-| `run_trisense_brain.py` | Entrypoint pentru creierul PC in modul standard |
-| `run_voice_dialog.py` | Entrypoint pentru creierul PC cu server TCP de voce |
-| `secrets.example.py` | Exemplu de secrete pentru ESP32 |
-| `testare/` | Folder cu scripturi de test (audio, MQTT, microfon laptop) |
-| `testare/README.md` | Ghid rapid pentru rularea tuturor scripturilor de test |
-| `testare/mqtt_speak_test.py` | Utilitar de test pentru comenzi MQTT de tip `speak` |
-| `testare/mqtt_voice_listen_test.py` | Utilitar de test pentru comanda MQTT `listen` (voce) |
-| `testare/test_i2s_beep.py` | Test audio I2S (difuzor) pe ESP32 |
-| `testare/test_mic_difuzor.py` | Test combinat microfon + difuzor pe ESP32 |
-| `testare/test_laptop_mic.py` | Test local microfon laptop -> STT -> raspuns TriSense |
-| `trisense_metrics.csv` | Log de metrici pentru rularea creierului |
+## What each file does
 
-### Pachetul `trisense/` explicat simplu
+### The root of the project
 
-Gandeste-te la `trisense/` ca la "camera de control" a robotului:
+| File | Role |
+|------|------|
+| `.env.example` | Example of environment variables for the PC side |
+| `.gitignore` | Files/folders excluded from git (ex: .env, secrets.py, .venv) |
+| `.micropico` | Configuration for uploading/running MicroPython (tooling) |
+| `.vscode/extensions.json` | Recommended extensions for VS Code/Cursor |
+| `.vscode/settings.json` | Editor local settings for the project |
+| `CONTEXT.md` | Placeholder file (currently empty) |
+| `HARDWARE_LMS_ESP32_ANTONS.md` | LMS-ESP32 hardware notes used in the paper |
+| `Project Report 2.0 3 Ways of Garbage (2).pdf` | PDF project documentation |
+| `README.md` | Main project documentation |
+| `RECOVERY.md` | Recovery steps for REPL/mpremote |
+| `boot.py` | Boot script on ESP32 |
+| `lpf2.py` | LPF2 implementation/protocol used in LEGO communication |
+| `main.py` | Main script for LEGO Hub (Pybricks) |
+| `main_robot.py` | Main firmware on ESP32 (camera, MQTT, audio, hub connection) |
+| `child_memory.json` | Local storage for conversation memory |
+| `pupremote.py` | PUPRemote library for connecting ESP32 <-> LEGO Hub |
+| `pyhuskylens.py` | Driver/interface for HuskyLens camera |
+| `rep` | Local marker for REPL mode on device |
+| `requirements.txt` | Python dependencies for the PC side |
+| `run_esp32.ps1` | PowerShell script to run main_robot.py via mpremote |
+| `run_trisense_brain.py` | Entrypoint for the PC brain in standard mode |
+| `run_voice_dialog.py` | Entrypoint for PC brain with TCP voice server |
+| `secrets.example.py` | Example of secrets for ESP32 |
+| `testing/` | Folder with test scripts (audio, MQTT, laptop microphone) |
+| `testing/README.md` | Quick guide to running all test scripts |
+| `test/mqtt_speak_test.py` | Test utility for MQTT speak commands |
+| `test/mqtt_voice_listen_test.py` | Test utility for MQTT listen command (voice) |
+| `test/test_i2s_beep.py` | I2S audio test (speaker) on ESP32 |
+| `test/test_mic_difuzor.py` | Combined microphone + speaker test on ESP32 |
+| `test/test_laptop_mic.py` | Local laptop microphone test -> STT -> TriSense response |
+| `trisense_metrics.csv` | Brain Running Metrics Log |
 
-| Fisier | Explicatie simpla |
-|--------|-------------------|
-| `trisense/brain.py` | Este "seful" care coordoneaza tot: ce vede robotul, ce raspuns da, cand trece la urmatorul pas |
-| `trisense/ai_client.py` | Vorbeste cu AI-ul (Gemini) ca sa genereze raspunsuri prietenoase |
-| `trisense/config.py` | "Setarile proiectului": broker MQTT, porturi, nume topicuri, fisiere |
-| `trisense/mqtt_layer.py` | Face legatura prin MQTT intre robot si laptop |
-| `trisense/memory_store.py` | Tine minte informatii simple (de exemplu numele copilului) |
-| `trisense/tts_engine.py` | Transforma textul in voce pe laptop (daca este activat) |
-| `trisense/voice_tcp_server.py` | Primeste audio de la robot cand folosesti modul vocal |
-| `trisense/audio_push.py` | Trimite audio de pe laptop catre robot |
-| `trisense/metrics_logger.py` | Salveaza statistici (de ex. timpi de reactie) |
-| `trisense/states.py` | Defineste starile jocului (START, SALUT, ACTIVITATE, FINAL) |
-| `trisense/__init__.py` | Fisier tehnic de pachet Python |
+### The trisense package/ simply explained
 
-Pe scurt: `brain.py` decide, `ai_client.py` genereaza textul, `mqtt_layer.py` trimite/comunica, iar restul modulelor ajuta cu memorie, voce si statistici.
+Think of `trisense/` as the robot's "control room":
 
-## Observatii importante
+| File | Simple explanation |
+|------|---------------------|
+| `trisense/brain.py` | It is the "boss" who coordinates everything: what the robot sees, what response it gives, when it moves on to the next step. |
+| `trisense/ai_client.py` | Talk to the AI (Gemini) to generate friendly responses |
+| `trisense/config.py` | "Project settings": MQTT broker, ports, topic names, files |
+| `trisense/mqtt_layer.py` | Connects via MQTT between robot and laptop |
+| `trisense/memory_store.py` | Remember simple information (e.g. child's name) |
+| `trisense/tts_engine.py` | Turn text into speech on your laptop (if enabled) |
+| `trisense/voice_tcp_server.py` | Receive audio from the robot when using voice mode |
+| `trisense/audio_push.py` | Send audio from laptop to robot |
+| `trisense/metrics_logger.py` | Save statistics (e.g. reaction times) |
+| `trisense/states.py` | Defines the game states (START, GREETINGS, ACTIVITY, END) |
+| `trisense/__init__.py` | Python package technical file |
 
-- Nu publica chei/API keys sau parole Wi-Fi in repository.
-- Daca apare desincronizare LPF2 sau probleme de upload, vezi `RECOVERY.md`.
-- Pentru depanare hardware si pini, foloseste `HARDWARE_LMS_ESP32_ANTONS.md`.
+In short: brain.py decides, ai_client.py generates the text, mqtt_layer.py sends/communicates, and the rest of the modules help with memory, voice, and statistics.
+
+## Important notes
+
+- Do not publish API keys or Wi-Fi passwords in the repository.
+- If LPF2 desynchronization or upload problems occur, see RECOVERY.md.
+- For hardware and pin debugging, use HARDWARE_LMS_ESP32_ANTONS.md.
