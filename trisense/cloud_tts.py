@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 import os
+import struct
 from typing import Optional
 
 from trisense.config import GCP_PROJECT, default_google_credentials_path
@@ -78,6 +79,26 @@ def synthesize_linear16_pcm(text: str, *, voice_name: Optional[str] = None) -> t
     raw = getattr(response, "audio_content", None) or b""
     if not raw or len(raw) < 100:
         logger.warning("Cloud TTS: PCM gol sau foarte scurt.")
+        return b"", sr
+    # LINEAR16 din Cloud TTS include header WAV (RIFF). Il stergem ca sa trimitem
+    # doar PCM brut — altfel header-ul e interpretat ca sampli audio si porneste
+    # filtrul HP cu valori mari (~±20000), distorsionand primele ~200ms de audio.
+    if len(raw) >= 44 and raw[:4] == b"RIFF" and raw[8:12] == b"WAVE":
+        i = 12
+        found = False
+        while i + 8 <= len(raw):
+            chunk_id = raw[i:i+4]
+            chunk_size = struct.unpack_from("<I", raw, i+4)[0]
+            if chunk_id == b"data":
+                raw = raw[i+8:i+8+chunk_size]
+                found = True
+                break
+            i += 8 + chunk_size
+        if not found:
+            raw = raw[44:]  # fallback: skip standard 44-byte header
+        logger.debug("Cloud TTS: header WAV sters, ramasite PCM brut %d B.", len(raw))
+    if not raw or len(raw) < 100:
+        logger.warning("Cloud TTS: PCM gol dupa stergerea header-ului WAV.")
         return b"", sr
     logger.info(
         "Cloud TTS: PCM %d B @ %d Hz (~%.2f s)",

@@ -1,0 +1,88 @@
+# test_mic_only.py — MicroPython ESP32
+# Test DOAR microfon INMP441 (fara difuzor, fara MQTT, fara HuskyLens).
+# Cablaj: VDD=3V3, GND=GND, SCK=14, WS=15, SD=33, L/R=GND
+
+from machine import I2S, Pin
+import time
+import struct
+
+SCK_PIN = 14
+WS_PIN  = 15
+SD_PIN  = 33
+RATE    = 16000
+
+print("=== TEST MICROFON INMP441 ===")
+print("SCK=14  WS=15  SD=33  VDD=3V3  GND=GND  L/R=GND")
+print("")
+
+try:
+    import network
+    network.WLAN(network.STA_IF).active(False)
+    network.WLAN(network.AP_IF).active(False)
+    print("WiFi oprit.")
+except Exception:
+    pass
+
+time.sleep_ms(200)
+
+mic = None
+try:
+    mic = I2S(
+        0,
+        sck=Pin(SCK_PIN),
+        ws=Pin(WS_PIN),
+        sd=Pin(SD_PIN),
+        mode=I2S.RX,
+        bits=16,
+        format=I2S.MONO,
+        rate=RATE,
+        ibuf=8000,
+    )
+    print("I2S RX init OK (16-bit MONO).")
+except Exception as e:
+    print("EROARE I2S init:", e)
+    raise SystemExit
+
+buf = bytearray(2048)
+
+# Warm-up
+for _ in range(5):
+    mic.readinto(buf)
+    time.sleep_ms(30)
+
+# Print raw bytes pt debug
+mic.readinto(buf)
+print("Raw primii 32 bytes:", " ".join("%02x" % b for b in buf[:32]))
+print("")
+print("Vorbeste tare spre microfon (10 runde x ~130ms)...")
+print("")
+
+for runda in range(10):
+    n = mic.readinto(buf)
+    if not n:
+        print("Runda %2d | EROARE: readinto=0" % (runda + 1))
+        continue
+
+    mx = 0
+    n_samples = n // 2
+    for i in range(n_samples):
+        s = struct.unpack_from("<h", buf, i * 2)[0]
+        v = abs(s)
+        if v > mx:
+            mx = v
+
+    bari = min(mx * 30 // 32767, 30)
+    bara = "#" * bari + "-" * (30 - bari)
+    print("Runda %2d | max=%5d | [%s]" % (runda + 1, mx, bara))
+    time.sleep_ms(130)
+
+mic.deinit()
+print("")
+if mx > 500:
+    print("MICROFON OK!")
+else:
+    print("Semnal mic/nul. Verifica:")
+    print("  1. Firul SD -> GPIO 33 (contact slab?)")
+    print("  2. VDD -> 3.3V (nu 5V!)")
+    print("  3. GND comun cu ESP32")
+    print("  4. Incearca L/R la 3.3V in loc de GND")

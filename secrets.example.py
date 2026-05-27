@@ -5,12 +5,12 @@
 
 GEMINI_API_KEY = "AIza...pune_cheia_ta_aici..."
 
-# IP-ul PC-ului pe aceeasi WiFi (server TCP voce). La hotspot (ex. Boca) = IPv4 laptop din ipconfig.
-PC_VOICE_IP = "172.20.10.3"
+# IP-ul PC-ului pe aceeasi WiFi (server TCP voce) = IPv4 laptop din ipconfig.
+PC_VOICE_IP = "192.168.80.106"
 
-# WiFi robot — exemplu hotspot Boca (2.4 GHz pe telefon; ESP si laptop pe acelasi hotspot).
-WIFI_SSID = "Boca"
-WIFI_PASS = "parola_hotspot"
+# WiFi robot — Inventika (2.4 GHz; ESP si laptop pe aceeasi retea).
+WIFI_SSID = "inventika"
+WIFI_PASS = "!#inventika2025"
 
-# MQTT — acelasi IP ca MQTT_BROKER / PC_VOICE_IP din .env pe PC (Mosquitto pe laptop).
-MQTT_BROKER = "172.20.10.3"
+# MQTT — acelasi IP ca MQTT_BROKER din .env pe PC (Mosquitto pe laptop).
+MQTT_BROKER = "192.168.80.106"

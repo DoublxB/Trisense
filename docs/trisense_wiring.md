@@ -1,0 +1,87 @@
+# TriSense — diagramă cablaj (Mermaid)
+
+Deschide acest fișier în **Cursor/VS Code** cu preview Markdown (`Ctrl+Shift+V`), sau lipește conținutul de mai jos în [Mermaid Live Editor](https://mermaid.live).
+
+```mermaid
+graph TD
+    classDef hub fill:#ffd166,stroke:#333,stroke-width:2px;
+    classDef lms fill:#06d6a0,stroke:#333,stroke-width:2px;
+    classDef cam fill:#118ab2,stroke:#333,stroke-width:2px;
+    classDef breadRed fill:#e63946,stroke:#333,stroke-width:1px,color:#fff;
+    classDef breadWhite fill:#ffffff,stroke:#999,stroke-width:1px;
+    classDef audio fill:#ef476f,stroke:#333,stroke-width:1px;
+    classDef pc fill:#073b4c,stroke:#fff,stroke-width:1px,color:#fff;
+
+    Wall["Priza / Incarcator USB"] -. Incarcare .-> Hub["LEGO SPIKE Prime Hub<br/>Baterie interna"]
+
+    subgraph LMS_Block["Sistem LMS-ESP32 v2"]
+        LMS["LMS-ESP32 Module"]
+    end
+
+    Hub -- "Cablu LEGO Anton Port A<br/>Alimentare + UART GPIO 7/8<br/>LPF2 / PUPRemote" --> LMS
+
+    subgraph Mini_Breadboard_Red["Mini breadboard ROSU"]
+        BCLK_Bus(("Sina BCLK"))
+        WS_Bus(("Sina WS/LRC"))
+        GND_Bus(("Sina GND"))
+    end
+
+    subgraph Mini_Breadboard_White["Mini breadboard ALB - Microfon"]
+        Mic["INMP441"]
+    end
+
+    Amp["MAX98357A"]
+    Speaker["Difuzor 4 ohm"]
+    Cam["ESP32-CAM AI-Thinker"]
+    PC["PC / Laptop<br/>MQTT + Vision bridge"]
+
+    LMS -- GPIO 14 --> BCLK_Bus
+    LMS -- GPIO 15 --> WS_Bus
+    LMS -- GND --> GND_Bus
+
+    BCLK_Bus -- BCLK --> Amp
+    BCLK_Bus -- SCK --> Mic
+    WS_Bus -- LRC --> Amp
+    WS_Bus -- WS --> Mic
+    GND_Bus -- GND --> Amp
+    GND_Bus -- GND --> Mic
+    GND_Bus -- "L/R pin" --> Mic
+
+    LMS -- "GPIO 26 DIN" --> Amp
+    LMS -- "GPIO 32 SD/EN" --> Amp
+    Mic -- "GPIO 33 DOUT" --> LMS
+    LMS -- "3.3V VDD" --> Mic
+    LMS -- "5V VIN" --> Amp
+
+    Speaker -- "fir + / fir -" --> Amp
+
+    LMS -- 5V --> Cam
+    LMS -- GND --> Cam
+
+    Cam -. "WiFi HTTP /capture" .-> PC
+    LMS -. "WiFi MQTT + TCP 8765/8766" .-> PC
+
+    class Hub hub;
+    class LMS lms;
+    class Cam cam;
+    class BCLK_Bus,WS_Bus,GND_Bus breadRed;
+    class Mic breadWhite;
+    class Amp,Speaker audio;
+    class PC pc;
+```
+
+## Cum o vezi randată
+
+1. **Cursor / VS Code** — deschide `docs/trisense_wiring.md` → `Ctrl+Shift+V` (Markdown Preview).
+2. **Mermaid Live** — https://mermaid.live → lipește conținutul din `docs/trisense_wiring.mmd` → Export PNG/SVG.
+3. **GitHub** — push fișierul `.md`; blocul ` ```mermaid ` se randează automat în README/wiki.
+
+## Eroare din versiunea ta
+
+`classDef hub style fill:...` este **invalid**. Corect:
+
+```text
+classDef hub fill:#ffd166,stroke:#333,stroke-width:2px;
+```
+
+(fără cuvântul `style` după numele clasei)

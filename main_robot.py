@@ -963,9 +963,7 @@ def tri_record_send_tcp(pc_host, port, duration_ms, pr_sensor=None):
     sock = None
     audio_in = None
     hub = pr_sensor if pr_sensor is not None else pr
-    ticker_active_v = False
     try:
-        ticker_active_v = lpf2_ticker_start(hub)
         import socket
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -995,7 +993,16 @@ def tri_record_send_tcp(pc_host, port, duration_ms, pr_sensor=None):
             if not n:
                 continue
             mv = memoryview(buf)[:n]
-            sock.send(mv)
+            # Trimite in bucati mici + process() — send() blocant fara tick omoara LPF2.
+            off = 0
+            while off < n:
+                end = min(off + 1024, n)
+                sock.send(mv[off:end])
+                off = end
+                try:
+                    hub.process()
+                except Exception:
+                    pass
             sent += n
         print("Voce TCP: trimis", sent, "octeti catre", pc_host, ":", int(port))
     except Exception as e:
@@ -1011,11 +1018,9 @@ def tri_record_send_tcp(pc_host, port, duration_ms, pr_sensor=None):
                 sock.close()
         except Exception:
             pass
-        if ticker_active_v:
-            time.sleep_ms(80)
-            lpf2_ticker_stop()
-        # RX pe acelasi BCLK/LRC ca TX: lasa perifericul sa se elibereze inainte de urmatoarea redare difuzor.
-        time.sleep_ms(40)
+        # RX pe acelasi BCLK/LRC ca TX: lasa I2S sa se elibereze + stabilizeaza LPF2.
+        _lpf2_spin(hub, 50)
+        time.sleep_ms(120)
 
 
 def _audio_play_server_init():
@@ -1086,9 +1091,20 @@ def _i2s_irq_cb(arg):
     _I2S_NB_READY = True
 
 
+def _lpf2_spin(hub, count=40):
+    """Cateva process() ca legatura LPF2 sa se stabilizeze dupa I2S RX/TX."""
+    if hub is None:
+        return
+    for _ in range(count):
+        try:
+            hub.process()
+        except Exception:
+            pass
+        time.sleep_ms(3)
+
+
 def _i2s_write_nb(audio_dev, data, pr_sensor, chunk_size=2048):
-    """Scrie data pe I2S in mod non-blocking, apeland pr.process() intre chunk-uri.
-    audio_dev trebuie sa aiba deja irq setat cu _i2s_irq_cb."""
+    """Scrie data pe I2S in mod non-blocking, apeland pr.process() intre chunk-uri."""
     global _I2S_NB_READY
     mv = memoryview(data)
     off = 0
@@ -1170,20 +1186,24 @@ def lpf2_ticker_stop():
 
 
 def _play_pcm_stream_from_conn(conn, sample_rate, total_len, pr_sensor=None):
-    """Citeste PCM stereo din socket si reda cu I2S non-blocking.
-    pr.process() e apelat intre chunk-uri -- LPF2 ramane viu."""
+    """Citeste PCM stereo din socket si reda cu I2S non-blocking (streaming).
+    pr.process() intre chunk-uri; drain scurt inainte de deinit."""
     if sample_rate < 8000 or sample_rate > 48000:
         sample_rate = 24000
     if total_len < 4 or total_len > 2000000:
         return False
 
     hub = pr_sensor if pr_sensor is not None else pr
+    stereo_written = 0
+    ticker_on = lpf2_ticker_start(hub)
 
     def _tick():
         try:
             hub.process()
         except Exception:
             pass
+
+    _lpf2_spin(hub, 35)
 
     try:
         conn.settimeout(0.15)
@@ -1256,6 +1276,7 @@ def _play_pcm_stream_from_conn(conn, sample_rate, total_len, pr_sensor=None):
                 pre = pre[:-rem]
             if pre:
                 _i2s_write_nb(audio, pre, hub, I2S_WR)
+                stereo_written += len(pre)
         while got < total_len:
             _tick()
             try:
@@ -1279,12 +1300,22 @@ def _play_pcm_stream_from_conn(conn, sample_rate, total_len, pr_sensor=None):
                 chunk = chunk[:-rem]
             if chunk:
                 _i2s_write_nb(audio, chunk, hub, I2S_WR)
+                stereo_written += len(chunk)
             else:
                 _tick()
         return got >= max(2, total_len - 2)
     finally:
+        if ticker_on:
+            lpf2_ticker_stop()
         try:
             if audio:
+                if stereo_written >= 4:
+                    play_ms = (stereo_written // 4) * 1000 // sample_rate
+                    tail_ms = min(max(300, play_ms // 5), 700)
+                    end_ms = time.ticks_add(time.ticks_ms(), tail_ms)
+                    while time.ticks_diff(end_ms, time.ticks_ms()) > 0:
+                        _tick()
+                        time.sleep_ms(6)
                 audio.deinit()
         except Exception:
             pass
@@ -1366,7 +1397,7 @@ _pending_cmd_until_ms = 0
 _CMD_HOLD_MS = 1800
 _CMD_HOLD_MS_LONG = 4500          # dans pe hub blochează mai mult
 _CMD_HOLD_MS_BREATHING_SHOW_MS = 20000  # PAS 4: rutina Hub ~10 s + braț + margine
-_CMD_HOLD_MS_EMOTION_MS = 14000   # Act. 6: rutina emoție Hub ~10-12s + margine
+_CMD_HOLD_MS_EMOTION_MS = 32000   # Act. 6: rutine Hub amplificate (max ~28s meltdown) + margine
 _CMD_HOLD_MS_PATTERN_STEP_MS = 2800  # Act. 7: durata per pas pattern
 
 # Act. 7 Follow the Pattern — secventa de (ticks_deadline, cmd_code) programata de PC via MQTT.

@@ -646,26 +646,28 @@ class TriSenseBrain:
             "meltdown":  "emotion_meltdown",
         }[self._current_emotion]
         logger.info("Act.6 [1/4]: emotie aleasa = %s", self._current_emotion)
+        self._current_activity = "GUESS_EMOTION"
 
         intro = f"Watch carefully, {name}!"
         logger.info("Act.6 [2/4]: redau intro pe robot...")
-        self._say(intro, robot_only=robot_only, esp_ip=esp_ip)
-        time.sleep(0.5)
+        self._say(intro, robot_only=robot_only, esp_ip=esp_ip, wait=True)
+        time.sleep(0.6)
 
         logger.info("Act.6 [3/4]: trimit cmd %s la Hub si astept rutina...", emotion_action)
         self._publish({"action": emotion_action})
         emotion_dur = {
-            "emotion_happy": 14.0,
-            "emotion_sad": 8.0,
-            "emotion_surprised": 7.0,
-            "emotion_angry": 8.0,
-            "emotion_meltdown": 10.0,
+            "emotion_happy": 22.0,
+            "emotion_sad": 9.5,
+            "emotion_surprised": 8.5,
+            "emotion_angry": 24.0,
+            "emotion_meltdown": 28.0,
         }
-        time.sleep(emotion_dur.get(emotion_action, 10.0))
+        time.sleep(emotion_dur.get(emotion_action, 12.0))
+        time.sleep(0.8)
 
         question = f"What emotion was I showing, {name}? Happy, sad, surprised, angry, or meltdown?"
         logger.info("Act.6 [4/4]: redau intrebarea pe robot...")
-        self._say(question, robot_only=robot_only, esp_ip=esp_ip)
+        self._say(question, robot_only=robot_only, esp_ip=esp_ip, wait=True)
         # Porneste automat ascultarea microfonului, ca sa nu mai fie nevoie de script manual.
         self._publish_listen(duration_ms=10000)
         logger.info("Act.6: gata, astept raspunsul copilului (listen auto trimis).")

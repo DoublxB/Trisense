@@ -2,7 +2,8 @@
 # DOAR ASCII in print().
 #
 # WS = LRC (acelasi semnal). sd= in I2S = linia DATE spre amplificator (DIN).
-# Pini: BCLK=14, LRC=15, DIN=26. Enable modul pe GPIO 32 (daca exista).
+# Pini: BCLK=14, LRC=15, DIN=26. Enable modul MAX98357 pe GPIO 32 (ca main_robot.py).
+# GPIO 33 = date microfon SD (MIC_I2S_SD) — NU folosi aici pentru enable.
 # Daca tot liniste: deconecteaza microfonul de pe bus (test doar difuzor).
 
 from machine import I2S, Pin
@@ -13,7 +14,10 @@ import math
 BCLK_PIN = 14
 WS_PIN = 15
 DIN_PIN = 26
-AMP_ENABLE_PIN = 33
+AMP_ENABLE_PIN = 32
+
+# Peak int16 per canal (~32400 ~ -0.35 dB fata de FS; putin mai tare decat 31000, inca sub clip)
+_BEEP_AMP_PEAK = 32400
 
 # Opreste WiFi — pe ESP32 poate interfera cu I2S/DMA
 def wifi_off():
@@ -28,7 +32,7 @@ def wifi_off():
         print("WiFi skip:", e)
 
 
-def buf_sine_stereo(rate_hz, freq_hz, duration_s, amp=30000):
+def buf_sine_stereo(rate_hz, freq_hz, duration_s, amp=_BEEP_AMP_PEAK):
     n = int(rate_hz * duration_s)
     buf = bytearray(n * 4)
     for i in range(n):
@@ -54,7 +58,7 @@ def run_beep(enable_high, label):
     din = Pin(DIN_PIN)
 
     # Buffer ~0.4s ton 440Hz stereo @ 44100
-    buf = buf_sine_stereo(44100, 440, 0.4, amp=31000)
+    buf = buf_sine_stereo(44100, 440, 0.4)
     print("Buffer sine bytes:", len(buf))
 
     audio = None
@@ -100,7 +104,7 @@ print("Verifica hardware MAX98357:")
 print("- Vin + GND modul")
 print("- Difuzor intre + si -")
 print("- SD/EN: unele moduluri trebuie legate la Vin (3.3V) permanent, nu la GPIO")
-print("- Daca EN e pe GPIO 32, incercam HIGH apoi LOW\n")
+print("- EN pe GPIO32: incercam HIGH apoi LOW (ca main_robot)\n")
 
 run_beep(True, "Test A enable")
 time.sleep_ms(500)
