@@ -963,6 +963,7 @@ def tri_record_send_tcp(pc_host, port, duration_ms, pr_sensor=None):
     sock = None
     audio_in = None
     hub = pr_sensor if pr_sensor is not None else pr
+    ticker_on = lpf2_ticker_start(hub)
     try:
         import socket
 
@@ -1018,9 +1019,11 @@ def tri_record_send_tcp(pc_host, port, duration_ms, pr_sensor=None):
                 sock.close()
         except Exception:
             pass
+        if ticker_on:
+            lpf2_ticker_stop()
         # RX pe acelasi BCLK/LRC ca TX: lasa I2S sa se elibereze + stabilizeaza LPF2.
         _lpf2_spin(hub, 50)
-        time.sleep_ms(120)
+        _lpf2_spin(hub, 40)
 
 
 def _audio_play_server_init():
@@ -1360,7 +1363,7 @@ def tri_accept_play_tcp_once(pr_sensor=None):
 
 
 # ==========================================
-# Config retea (Orange 2.4G / MQTT public — valorile sunt in secrets.py pe ESP sau default mai jos)
+# Config retea (Inventika / MQTT pe PC — valorile sunt in secrets.py pe ESP sau default mai jos)
 # ==========================================
 WIFI_SSID = scr_get("WIFI_SSID", "inventika")
 WIFI_PASS = scr_get("WIFI_PASS", "!#inventika2025")

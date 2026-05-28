@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import socket
 import struct
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +16,10 @@ _HP_ALPHA_Q15 = 29491  # ~0.9 (simple high-pass / DC-block)
 
 
 def send_pcm_to_esp(host: str, port: int, pcm: bytes, sample_rate: int) -> bool:
-    """Protocol simplu: TPCM + rate_u32 + len_u32 + payload PCM16 stereo."""
+    """Protocol simplu: TPCM + rate_u32 + len_u32 + payload PCM16 stereo.
+
+    Incearca de doua ori: prima cu timeout 6s, daca esueaza asteapta 2s si retry.
+    """
     if not host or not pcm:
         return False
     if sample_rate < 8000 or sample_rate > 48000:
@@ -25,23 +29,29 @@ def send_pcm_to_esp(host: str, port: int, pcm: bytes, sample_rate: int) -> bool:
     pcm_out = _mono_to_stereo_pcm16(pcm, gain_q15=24500)
     if not pcm_out:
         return False
-    try:
+    header = _MAGIC + struct.pack("<II", int(sample_rate), int(len(pcm_out)))
+    last_err: Exception | None = None
+    for attempt in range(2):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(12.0)
-        sock.connect((host, int(port)))
-        header = _MAGIC + struct.pack("<II", int(sample_rate), int(len(pcm_out)))
-        sock.sendall(header)
-        sock.sendall(pcm_out)
-        logger.info("Audio TCP trimis la %s:%s (%d B @ %d Hz)", host, port, len(pcm_out), sample_rate)
-        return True
-    except Exception as e:
-        logger.warning("Audio TCP esuat catre %s:%s: %s", host, port, e)
-        return False
-    finally:
         try:
-            sock.close()
-        except Exception:
-            pass
+            sock.settimeout(6.0)
+            sock.connect((host, int(port)))
+            sock.sendall(header)
+            sock.sendall(pcm_out)
+            logger.info("Audio TCP trimis la %s:%s (%d B @ %d Hz)", host, port, len(pcm_out), sample_rate)
+            return True
+        except Exception as e:
+            last_err = e
+            if attempt == 0:
+                logger.debug("Audio TCP attempt 1 esuat (%s) — retry dupa 2s", e)
+                time.sleep(2.0)
+        finally:
+            try:
+                sock.close()
+            except Exception:
+                pass
+    logger.warning("Audio TCP esuat catre %s:%s: %s", host, port, last_err)
+    return False
 
 
 def _mono_to_stereo_pcm16(pcm_mono: bytes, gain_q15: int = _OUT_GAIN_Q15) -> bytes:

@@ -1,6 +1,7 @@
 # test_mic_only.py — MicroPython ESP32
 # Test DOAR microfon INMP441 (fara difuzor, fara MQTT, fara HuskyLens).
 # Cablaj: VDD=3V3, GND=GND, SCK=14, WS=15, SD=33, L/R=GND
+# Daca MAX98357 are SD/EN pe GPIO32, testul il tine oprit ca sa nu bazaie.
 
 from machine import I2S, Pin
 import time
@@ -9,11 +10,23 @@ import struct
 SCK_PIN = 14
 WS_PIN  = 15
 SD_PIN  = 33
+SPK_DIN_PIN = 26
+AMP_ENABLE_PIN = 32
 RATE    = 16000
 
 print("=== TEST MICROFON INMP441 ===")
 print("SCK=14  WS=15  SD=33  VDD=3V3  GND=GND  L/R=GND")
 print("")
+
+# Mic-ul si difuzorul impart BCLK/LRC. Cand porneste I2S RX, MAX98357 poate
+# interpreta clock-urile ca audio si bazaie daca ramane activ sau DIN pluteste.
+try:
+    Pin(AMP_ENABLE_PIN, Pin.OUT).value(0)
+    Pin(SPK_DIN_PIN, Pin.OUT).value(0)
+    print("Difuzor/amplificator oprit pentru test (EN=GPIO32 LOW, DIN=GPIO26 LOW).")
+except Exception as e:
+    print("Nu pot opri difuzorul din software:", e)
+
 
 try:
     import network
@@ -45,10 +58,14 @@ except Exception as e:
 
 buf = bytearray(2048)
 
-# Warm-up
-for _ in range(5):
+# INMP441 are nevoie de ~200ms dupa ce porneste BCLK ca sa se sincronizeze.
+# Fara delay, pe a doua rulare (dupa deinit anterior) da tot 0x00.
+time.sleep_ms(300)
+
+# Warm-up: citim si aruncam pana microfonul iese din starea tranzitorie.
+for _ in range(20):
     mic.readinto(buf)
-    time.sleep_ms(30)
+    time.sleep_ms(10)
 
 # Print raw bytes pt debug
 mic.readinto(buf)

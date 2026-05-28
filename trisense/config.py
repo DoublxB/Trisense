@@ -10,7 +10,7 @@ from typing import Optional
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # MQTT (compatibil HiveMQ public)
-MQTT_BROKER = os.environ.get("MQTT_BROKER", "192.168.100.134")
+MQTT_BROKER = os.environ.get("MQTT_BROKER", "192.168.80.106")
 MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
 MQTT_USE_TLS = os.environ.get("MQTT_USE_TLS", "0") == "1"
 

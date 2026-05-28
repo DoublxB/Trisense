@@ -506,8 +506,6 @@ class TriSenseBrain:
                 self._run_judges_demo(robot_only=robot_only, esp_ip=esp_ip)
                 return
             if action == "breathing_show":
-                # PAS4: ghid vocal prin Audio TCP din PC (pyttsx3/Vertex → PCM), fără laptop,
-                #       fără {"speak"} pe MQTT → ESP nu cheamă Gemini (fără cheie în secrets.py).
                 vtrim = (voice or "").strip()
                 if len(vtrim) > ESP_SPEAK_MAX_CHARS:
                     vtrim = vtrim[: max(0, ESP_SPEAK_MAX_CHARS - 3)] + "..."
@@ -520,10 +518,9 @@ class TriSenseBrain:
                     wait_for_playback=True,
                 )
                 if not intro_ok:
-                    logger.warning(
-                        "PAS4: fraza ghidată nu ajunge la difuzor (TRISENSE_TTS_OVER_TCP=1, pyttsx3 PCM, "
-                        "IP ESP din flux vizual/server). Încerca din nou după reconectare."
-                    )
+                    logger.warning("Breathing show: Audio TCP esuat, incerc MQTT speak ca fallback.")
+                    self._publish({"speak": vtrim})
+                    time.sleep(3.0)
                 sent = self._publish({"action": "breathing_show"})
                 if not sent:
                     logger.warning(
@@ -764,7 +761,11 @@ class TriSenseBrain:
                 self._pattern_sequence = []
                 self._pattern_step = 0
             else:
-                step_label = self._PATTERN_STEPS[self._pattern_step][1]
+                next_action = self._pattern_sequence[self._pattern_step]
+                step_label = next(
+                    (s[1] for s in self._PATTERN_STEPS if s[0] == next_action),
+                    next_action.replace("_", " "),
+                )
                 response = f"Correct! Step {self._pattern_step + 1}: {step_label}?"
                 self._say(response, robot_only=robot_only, esp_ip=esp_ip)
                 # Auto-listen dupa intrebarea pentru pasul urmator.

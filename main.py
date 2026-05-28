@@ -1,6 +1,6 @@
 """
 TriSense - Program Pybricks pentru Hub SPIKE Prime.
-Ruleaza pe Hub; brate Port B+E, roti Port C+D, cap/gat Port F (sus-jos).
+Ruleaza pe Hub; brate Port B+E, roti Port C+D.
 
 Canal PupRemote "cmd" (uint8) — trebuie aliniat cu main_robot.py pe ESP:
 
@@ -36,65 +36,37 @@ from pupremote_hub import PUPRemoteHub
 SENSOR_PORT = Port.A
 LOOP_DELAY_MS = 50
 
+_PR = None
+_PULSE_MS = 80
+
 ARM_LEFT_PORT = Port.B
 ARM_RIGHT_PORT = Port.E
 WHEEL_LEFT_PORT = Port.C
 WHEEL_RIGHT_PORT = Port.D
-HEAD_PORT = Port.F
 
-_SPEED = 620
-_WHEEL_SPEED_DEG_S = 380
-_WHEEL_MS = 1050
-_ANGLE_DANCE = 92
-_ANGLE_SIDE = 72
-_ANGLE_OPEN = 88
-# Cmd 3–4 (brat sus stanga/dreapta): unghi mare ca miscarea sa fie clara pe scena.
-_ANGLE_ARM_PATTERN = 88
-# Pivot pe loc (cmd 9–10): mai multa rotatie decat mersul scurt (7–8).
-_WHEEL_PIVOT_SPEED = 340
-_WHEEL_PIVOT_MS = 900
-_WHEEL_DANCE_MS = 950
-_WHEEL_EMOTION_MS = 1550
-_DANCE_CYCLES = 4
-_EMOTION_ARM_EXTRA = 38
-# Angry: pivot mai lung + 4 pasi ≈ mini-cerc complet (~360°).
-_ANGRY_PIVOT_MS = 1150
-_ANGRY_CIRCLE_STEPS = 4
+_SPEED = 380
+_WHEEL_SPEED_DEG_S = 240
+_WHEEL_MS = 700
+_ANGLE_DANCE = 55
+_ANGLE_SIDE = 40
+_ANGLE_OPEN = 50
+# Cmd 3–4 (brat sus stanga/dreapta): unghi clar dar usor.
+_ANGLE_ARM_PATTERN = 52
+# Pivot pe loc (cmd 9–10): rotatie scurta.
+_WHEEL_PIVOT_SPEED = 200
+_WHEEL_PIVOT_MS = 600
+_WHEEL_DANCE_MS = 600
+_WHEEL_EMOTION_MS = 800
+_DANCE_CYCLES = 3
+_EMOTION_ARM_EXTRA = 20
+# Angry: pivot scurt.
+_ANGRY_PIVOT_MS = 700
+_ANGRY_CIRCLE_STEPS = 3
 
 # Aceleași timing-uri ca BV + PCM inspir/expir în main_robot. `_BSHOW_CYCLES` = `_BV_BREATHING_CYCLES`.
 _BSHOW_CYCLES = 2
 _BSHOW_INH_MS = 2500
 _BSHOW_EXH_MS = 2500
-
-# Cap / gat (Port F) — calibrare: daca e invers fizic, schimba semnul sau Direction pe motor.
-_HEAD_SPEED = 420
-_HEAD_NEUTRAL = 0
-_HEAD_UP = 32
-_HEAD_DOWN = -24
-_HEAD_TILT = 16
-
-
-def _head_to(head, angle, *, speed=_HEAD_SPEED, wait=True):
-    head.run_target(speed, angle, then=Stop.HOLD, wait=wait)
-
-
-def _head_home(head, *, wait=False):
-    _head_to(head, _HEAD_NEUTRAL, wait=wait)
-
-
-def _head_up(head, *, wait=False):
-    _head_to(head, _HEAD_UP, wait=wait)
-
-
-def _head_down(head, *, wait=False):
-    _head_to(head, _HEAD_DOWN, wait=wait)
-
-
-def _head_nod(head, times=2):
-    for _ in range(times):
-        _head_up(head, wait=True)
-        _head_down(head, wait=True)
-    _head_home(head, wait=True)
 
 
 def _matrix_clear(hub):
@@ -102,6 +74,32 @@ def _matrix_clear(hub):
         hub.display.off()
     except Exception:
         pass
+
+
+def _pulse_lpf2():
+    """Un pas de heartbeat LPF2: face un pr.call() scurt; ignora orice eroare."""
+    global _PR
+    if _PR is None:
+        return
+    try:
+        _PR.call("cmd")
+    except Exception:
+        pass
+
+
+def _pulse_wait(ms):
+    """wait() lung impartit in pasi de _PULSE_MS cu pr.call() intre ei => LPF2 ramane viu."""
+    if ms <= 0:
+        return
+    remaining = int(ms)
+    step = _PULSE_MS
+    while remaining > step:
+        wait(step)
+        _pulse_lpf2()
+        remaining -= step
+    if remaining > 0:
+        wait(remaining)
+        _pulse_lpf2()
 
 
 def _matrix_wave_inspire(hub, total_ms):
@@ -114,7 +112,7 @@ def _matrix_wave_inspire(hub, total_ms):
                 hub.display.pixel(row, col, 90)
             except Exception:
                 pass
-        wait(step)
+        _pulse_wait(step)
 
 
 def _matrix_wave_expire(hub, total_ms):
@@ -126,7 +124,7 @@ def _matrix_wave_expire(hub, total_ms):
                 hub.display.pixel(row, col, 0)
             except Exception:
                 pass
-        wait(step)
+        _pulse_wait(step)
 
 
 def _draw_T(hub, brightness=100):
@@ -219,255 +217,282 @@ def _draw_warning_triangle(hub, brightness=100):
         hub.display.pixel(4, col, brightness)
 
 
+_ARM_MOVE_MS = 350
+
+
 def _arms_home(arm_left, arm_right):
+    """Revino la 0° (pozitia de repaus) si asteapta finalizarea, cu LPF2 activ."""
     arm_left.run_target(_SPEED, 0, then=Stop.HOLD, wait=False)
-    arm_right.run_target(_SPEED, 0, then=Stop.HOLD, wait=True)
+    arm_right.run_target(_SPEED, 0, then=Stop.HOLD, wait=False)
+    for _ in range(20):
+        try:
+            if arm_left.done() and arm_right.done():
+                break
+        except Exception:
+            break
+        _pulse_wait(80)
 
 
-def _pose_home(arm_left, arm_right, head, *, move_head=True):
+def _pose_home(arm_left, arm_right):
     _arms_home(arm_left, arm_right)
-    if move_head:
-        _head_home(head, wait=True)
 
 
-def dance_arms_and_wheels(arm_left, arm_right, w_left, w_right, head):
-    """Miscare dans: brate + cap + roti fata/spate alternativ."""
+def dance_arms_and_wheels(arm_left, arm_right, w_left, w_right):
+    """Miscare dans: brate + roti fata/spate alternativ."""
     for _ in range(_DANCE_CYCLES):
         arm_left.run_target(_SPEED, _ANGLE_DANCE, then=Stop.HOLD, wait=False)
         arm_right.run_target(_SPEED, _ANGLE_DANCE, then=Stop.HOLD, wait=False)
-        _head_up(head, wait=False)
         w_left.run_time(_WHEEL_SPEED_DEG_S, _WHEEL_DANCE_MS, then=Stop.BRAKE, wait=False)
-        w_right.run_time(_WHEEL_SPEED_DEG_S, _WHEEL_DANCE_MS, then=Stop.BRAKE, wait=True)
+        w_right.run_time(_WHEEL_SPEED_DEG_S, _WHEEL_DANCE_MS, then=Stop.BRAKE, wait=False)
+        _pulse_wait(_WHEEL_DANCE_MS)
         arm_left.run_target(_SPEED, -_ANGLE_DANCE, then=Stop.HOLD, wait=False)
         arm_right.run_target(_SPEED, -_ANGLE_DANCE, then=Stop.HOLD, wait=False)
-        _head_down(head, wait=False)
         w_left.run_time(-_WHEEL_SPEED_DEG_S, _WHEEL_DANCE_MS, then=Stop.BRAKE, wait=False)
-        w_right.run_time(-_WHEEL_SPEED_DEG_S, _WHEEL_DANCE_MS, then=Stop.BRAKE, wait=True)
-    _pose_home(arm_left, arm_right, head)
+        w_right.run_time(-_WHEEL_SPEED_DEG_S, _WHEEL_DANCE_MS, then=Stop.BRAKE, wait=False)
+        _pulse_wait(_WHEEL_DANCE_MS)
+    _pose_home(arm_left, arm_right)
 
 
-def repose_pose(arm_left, arm_right, head):
-    _pose_home(arm_left, arm_right, head)
+def repose_pose(arm_left, arm_right):
+    _pose_home(arm_left, arm_right)
 
 
-def left_arm_up_pose(arm_left, arm_right, head):
+def left_arm_up_pose(arm_left, arm_right):
     arm_left.run_target(_SPEED, _ANGLE_ARM_PATTERN, then=Stop.HOLD, wait=False)
     arm_right.run_target(_SPEED, 0, then=Stop.HOLD, wait=False)
-    _head_to(head, _HEAD_TILT, wait=True)
+    _pulse_wait(_ARM_MOVE_MS)
 
 
-def right_arm_up_pose(arm_left, arm_right, head):
+def right_arm_up_pose(arm_left, arm_right):
     arm_left.run_target(_SPEED, 0, then=Stop.HOLD, wait=False)
     arm_right.run_target(_SPEED, _ANGLE_ARM_PATTERN, then=Stop.HOLD, wait=False)
-    _head_to(head, _HEAD_TILT, wait=True)
+    _pulse_wait(_ARM_MOVE_MS)
 
 
-def breathe_in_pose(arm_left, arm_right, head):
+def breathe_in_pose(arm_left, arm_right):
     arm_left.run_target(_SPEED, _ANGLE_OPEN, then=Stop.HOLD, wait=False)
     arm_right.run_target(_SPEED, _ANGLE_OPEN, then=Stop.HOLD, wait=False)
-    _head_up(head, wait=True)
+    _pulse_wait(_ARM_MOVE_MS)
 
 
-def breathe_out_pose(arm_left, arm_right, head):
+def breathe_out_pose(arm_left, arm_right):
     arm_left.run_target(_SPEED, 0, then=Stop.HOLD, wait=False)
     arm_right.run_target(_SPEED, 0, then=Stop.HOLD, wait=False)
-    _head_down(head, wait=True)
+    _pulse_wait(_ARM_MOVE_MS)
 
 
-def breathe_in_with_matrix(arm_left, arm_right, head, hub, total_ms=1200):
-    """Inspiratie scurta pentru comanda simpla/follow-pattern: brate + cap + val pe matrice."""
-    breathe_in_pose(arm_left, arm_right, head)
+def breathe_in_with_matrix(arm_left, arm_right, hub, total_ms=1200):
+    """Inspiratie scurta pentru comanda simpla/follow-pattern: brate + val pe matrice."""
+    breathe_in_pose(arm_left, arm_right)
     _matrix_wave_inspire(hub, total_ms)
     _matrix_clear(hub)
 
 
-def emotion_happy_routine(arm_left, arm_right, w_left, w_right, head, hub):
-    """Cmd 15 — bucurie: smiley face + dans brate + cap + roti fata/spate."""
+def emotion_happy_routine(arm_left, arm_right, w_left, w_right, hub):
+    """Cmd 15 — bucurie: smiley + dans brate alternativ + roti fata/spate + sarituri + pivot."""
     for cycle in range(_DANCE_CYCLES):
         _draw_smiley(hub)
         arm_left.run_target(_SPEED, _ANGLE_DANCE, then=Stop.HOLD, wait=False)
         arm_right.run_target(_SPEED, _ANGLE_DANCE, then=Stop.HOLD, wait=False)
-        _head_up(head, wait=False)
         w_left.run_time(_WHEEL_SPEED_DEG_S, _WHEEL_EMOTION_MS, then=Stop.BRAKE, wait=False)
-        w_right.run_time(_WHEEL_SPEED_DEG_S, _WHEEL_EMOTION_MS, then=Stop.BRAKE, wait=True)
+        w_right.run_time(_WHEEL_SPEED_DEG_S, _WHEEL_EMOTION_MS, then=Stop.BRAKE, wait=False)
+        _pulse_wait(_WHEEL_EMOTION_MS)
+        arm_left.run_target(_SPEED, _ANGLE_DANCE, then=Stop.HOLD, wait=False)
+        arm_right.run_target(_SPEED, -_ANGLE_DANCE, then=Stop.HOLD, wait=False)
+        _pulse_wait(220)
+        arm_left.run_target(_SPEED, -_ANGLE_DANCE, then=Stop.HOLD, wait=False)
+        arm_right.run_target(_SPEED, _ANGLE_DANCE, then=Stop.HOLD, wait=False)
+        _pulse_wait(220)
         arm_left.run_target(_SPEED, -_ANGLE_DANCE, then=Stop.HOLD, wait=False)
         arm_right.run_target(_SPEED, -_ANGLE_DANCE, then=Stop.HOLD, wait=False)
-        _head_down(head, wait=False)
         w_left.run_time(-_WHEEL_SPEED_DEG_S, _WHEEL_EMOTION_MS, then=Stop.BRAKE, wait=False)
-        w_right.run_time(-_WHEEL_SPEED_DEG_S, _WHEEL_EMOTION_MS, then=Stop.BRAKE, wait=True)
+        w_right.run_time(-_WHEEL_SPEED_DEG_S, _WHEEL_EMOTION_MS, then=Stop.BRAKE, wait=False)
+        _pulse_wait(_WHEEL_EMOTION_MS)
         if cycle < _DANCE_CYCLES - 1:
-            _head_nod(head, times=1)
             wheels_turn_left(w_left, w_right)
             wheels_turn_right(w_left, w_right)
-    _pose_home(arm_left, arm_right, head)
+    _pose_home(arm_left, arm_right)
     hub.display.off()
 
 
-def emotion_sad_routine(arm_left, arm_right, head, hub):
-    """Cmd 13 — tristete: sad face + brate jos + cap coborat + animatie lacrimi."""
+def emotion_sad_routine(arm_left, arm_right, hub):
+    """Cmd 13 — tristete: sad face + brate jos lent + animatie lacrimi + tremurat slab."""
     _draw_sad_face(hub)
-    arm_left.run_target(_SPEED // 2, -_ANGLE_SIDE, then=Stop.HOLD, wait=False)
-    arm_right.run_target(_SPEED // 2, -_ANGLE_SIDE, then=Stop.HOLD, wait=False)
-    _head_down(head, wait=True)
-    # Animatie lacrimi: 4 runde, picaturi cad pe col 1 si col 3 (sub ochi)
-    for _ in range(4):
+    slow = _SPEED // 2
+    arm_left.run_target(slow, -_ANGLE_SIDE, then=Stop.HOLD, wait=False)
+    arm_right.run_target(slow, -_ANGLE_SIDE, then=Stop.HOLD, wait=False)
+    _pulse_wait(_ARM_MOVE_MS)
+    for cycle in range(4):
         _draw_sad_face(hub)
-        wait(400)
+        _pulse_wait(400)
         for row in range(2, 5):
-            hub.display.pixel(row, 1, 90)   # lacrima stanga
-            hub.display.pixel(row, 3, 90)   # lacrima dreapta
-            wait(320)
+            hub.display.pixel(row, 1, 90)
+            hub.display.pixel(row, 3, 90)
+            _pulse_wait(280)
             hub.display.pixel(row, 1, 0)
             hub.display.pixel(row, 3, 0)
-    _pose_home(arm_left, arm_right, head)
+        if cycle < 3:
+            arm_left.run_target(slow, -_ANGLE_SIDE + 10, then=Stop.HOLD, wait=False)
+            arm_right.run_target(slow, -_ANGLE_SIDE + 10, then=Stop.HOLD, wait=False)
+            _pulse_wait(300)
+            arm_left.run_target(slow, -_ANGLE_SIDE, then=Stop.HOLD, wait=False)
+            arm_right.run_target(slow, -_ANGLE_SIDE, then=Stop.HOLD, wait=False)
+            _pulse_wait(300)
+    _pose_home(arm_left, arm_right)
     hub.display.off()
 
 
-def emotion_surprised_routine(arm_left, arm_right, head, hub):
-    """Cmd 14 — uimire: surprised face + brate sus rapid + cap sus + flash alternant."""
+def emotion_surprised_routine(arm_left, arm_right, hub):
+    """Cmd 14 — uimire: brate jerk sus/jos + flash alternant."""
+    fast = min(_SPEED * 2, 600)
     _draw_surprised_face(hub)
-    arm_left.run_target(_SPEED * 2, _ANGLE_OPEN, then=Stop.HOLD, wait=False)
-    arm_right.run_target(_SPEED * 2, _ANGLE_OPEN, then=Stop.HOLD, wait=False)
-    _head_up(head, wait=True)
-    # Flash alternant: fata uimita <-> ecran plin, de 4 ori
+    arm_left.run_target(fast, _ANGLE_OPEN, then=Stop.HOLD, wait=False)
+    arm_right.run_target(fast, _ANGLE_OPEN, then=Stop.HOLD, wait=False)
+    _pulse_wait(300)
     for _ in range(4):
         for row in range(5):
             for col in range(5):
                 hub.display.pixel(row, col, 100)
-        wait(220)
+        arm_left.run_target(fast, _ANGLE_OPEN, then=Stop.HOLD, wait=False)
+        arm_right.run_target(fast, _ANGLE_OPEN, then=Stop.HOLD, wait=False)
+        _pulse_wait(220)
         _draw_surprised_face(hub)
-        wait(220)
-    wait(600)
-    _pose_home(arm_left, arm_right, head)
+        arm_left.run_target(fast, _ANGLE_OPEN - 25, then=Stop.HOLD, wait=False)
+        arm_right.run_target(fast, _ANGLE_OPEN - 25, then=Stop.HOLD, wait=False)
+        _pulse_wait(220)
+    arm_left.run_target(fast, 0, then=Stop.HOLD, wait=False)
+    arm_right.run_target(fast, 0, then=Stop.HOLD, wait=False)
+    for row in range(5):
+        for col in range(5):
+            hub.display.pixel(row, col, 100)
+    _pulse_wait(400)
+    _pose_home(arm_left, arm_right)
     hub.display.off()
 
 
-def emotion_angry_routine(arm_left, arm_right, w_left, w_right, head, hub):
-    """Cmd 16 — furie: pumni + cap + mini-cerc (rotatie completa pe loc)."""
+def emotion_angry_routine(arm_left, arm_right, w_left, w_right, hub):
+    """Cmd 16 — furie: pumni + mini-cerc."""
 
     def _draw_angry_brows(drop, b=100):
-        # drop 0..2: sprancenele "cad" progresiv peste ochi.
         hub.display.off()
-        # Spranceana stanga (diagonala coboratoare spre centru)
         hub.display.pixel(min(4, 0 + drop), 0, b)
         hub.display.pixel(min(4, 0 + drop), 1, b)
         hub.display.pixel(min(4, 1 + drop), 2, b - 15)
-        # Spranceana dreapta (simetrica)
         hub.display.pixel(min(4, 0 + drop), 4, b)
         hub.display.pixel(min(4, 0 + drop), 3, b)
         hub.display.pixel(min(4, 1 + drop), 2, b - 15)
-        # Gura incruntata
         hub.display.pixel(3, 1, 75)
         hub.display.pixel(3, 2, 55)
         hub.display.pixel(3, 3, 75)
 
-    # Intro: brate "pregatite de pumn"
-    arm_left.run_target(_SPEED * 2, _ANGLE_OPEN, then=Stop.HOLD, wait=False)
-    arm_right.run_target(_SPEED * 2, -_ANGLE_OPEN, then=Stop.HOLD, wait=False)
-    _head_to(head, _HEAD_TILT, wait=True)
+    fast = min(_SPEED * 2, 600)
+    arm_left.run_target(fast, _ANGLE_OPEN, then=Stop.HOLD, wait=False)
+    arm_right.run_target(fast, -_ANGLE_OPEN, then=Stop.HOLD, wait=False)
+    _pulse_wait(_ARM_MOVE_MS)
 
-    # 3 cicluri: mini-cerc + pumni (cercul e clar vizibil, nu doar un pivot scurt).
     for _ in range(3):
         _mini_circle_left(w_left, w_right)
         for drop in (0, 1, 2):
             _draw_angry_brows(drop)
-            arm_left.run_target(_SPEED * 2, _ANGLE_DANCE + _EMOTION_ARM_EXTRA, then=Stop.HOLD, wait=False)
-            arm_right.run_target(_SPEED * 2, _ANGLE_DANCE + _EMOTION_ARM_EXTRA, then=Stop.HOLD, wait=False)
-            _head_down(head, wait=True)
+            arm_left.run_target(fast, _ANGLE_DANCE + _EMOTION_ARM_EXTRA, then=Stop.HOLD, wait=False)
+            arm_right.run_target(fast, _ANGLE_DANCE + _EMOTION_ARM_EXTRA, then=Stop.HOLD, wait=False)
             wheels_turn_left(w_left, w_right, _ANGRY_PIVOT_MS // 2)
-            wait(50)
-            arm_left.run_target(_SPEED * 2, -_ANGLE_SIDE, then=Stop.HOLD, wait=False)
-            arm_right.run_target(_SPEED * 2, -_ANGLE_SIDE, then=Stop.HOLD, wait=False)
-            _head_to(head, _HEAD_TILT, wait=True)
-            wait(50)
-        # Mic flash de "furie"
+            _pulse_wait(50)
+            arm_left.run_target(fast, -_ANGLE_SIDE, then=Stop.HOLD, wait=False)
+            arm_right.run_target(fast, -_ANGLE_SIDE, then=Stop.HOLD, wait=False)
+            _pulse_wait(_ARM_MOVE_MS // 2)
+            _pulse_wait(50)
         for row in range(5):
             for col in range(5):
                 hub.display.pixel(row, col, 95)
-        wait(90)
+        _pulse_wait(90)
         hub.display.off()
-        wait(90)
+        _pulse_wait(90)
 
     wheels_brake(w_left, w_right)
-    _pose_home(arm_left, arm_right, head)
+    _pose_home(arm_left, arm_right)
     hub.display.off()
 
 
-def emotion_meltdown_routine(arm_left, arm_right, w_left, w_right, head, hub):
+def emotion_meltdown_routine(arm_left, arm_right, w_left, w_right, hub):
     """Cmd 17 — meltdown: agitatie + triunghi avertizare cu ! pe burta (matrice Hub)."""
     _draw_warning_triangle(hub)
-    # Puls: triunghi <-> off (senzatie overload).
     for _ in range(3):
         _draw_warning_triangle(hub, 100)
-        wait(120)
+        _pulse_wait(120)
         hub.display.off()
-        wait(120)
+        _pulse_wait(120)
 
-    # 4 cicluri de agitatie: brate sus/jos amplu + pivot dublu + miscari fata/spate.
+    fast = min(_SPEED * 2, 600)
     meltdown_angle = _ANGLE_DANCE + _EMOTION_ARM_EXTRA
     for _ in range(_DANCE_CYCLES):
         _draw_warning_triangle(hub, 100)
-        arm_left.run_target(_SPEED * 2, meltdown_angle, then=Stop.HOLD, wait=False)
-        arm_right.run_target(_SPEED * 2, -meltdown_angle, then=Stop.HOLD, wait=False)
-        _head_up(head, wait=False)
+        arm_left.run_target(fast, meltdown_angle, then=Stop.HOLD, wait=False)
+        arm_right.run_target(fast, -meltdown_angle, then=Stop.HOLD, wait=False)
         wheels_turn_left(w_left, w_right)
-        wheels_turn_left(w_left, w_right)
+        arm_left.run_target(fast, 0, then=Stop.HOLD, wait=False)
+        arm_right.run_target(fast, 0, then=Stop.HOLD, wait=False)
+        _pulse_wait(150)
+        arm_left.run_target(fast, meltdown_angle, then=Stop.HOLD, wait=False)
+        arm_right.run_target(fast, meltdown_angle, then=Stop.HOLD, wait=False)
         wheels_turn_right(w_left, w_right)
-        wheels_turn_right(w_left, w_right)
+        arm_left.run_target(fast, -meltdown_angle, then=Stop.HOLD, wait=False)
+        arm_right.run_target(fast, -meltdown_angle, then=Stop.HOLD, wait=False)
         wheels_forward(w_left, w_right)
-        wheels_forward(w_left, w_right)
+        arm_left.run_target(fast, -meltdown_angle, then=Stop.HOLD, wait=False)
+        arm_right.run_target(fast, meltdown_angle, then=Stop.HOLD, wait=False)
         wheels_backward(w_left, w_right)
-        wheels_backward(w_left, w_right)
-        arm_left.run_target(_SPEED * 2, -meltdown_angle, then=Stop.HOLD, wait=False)
-        arm_right.run_target(_SPEED * 2, meltdown_angle, then=Stop.HOLD, wait=False)
-        _head_down(head, wait=False)
-        # Flash scurt: triunghi avertizare
         _draw_warning_triangle(hub, 100)
-        wait(90)
+        _pulse_wait(90)
         hub.display.off()
-        wait(90)
+        _pulse_wait(90)
 
     wheels_brake(w_left, w_right)
-    _pose_home(arm_left, arm_right, head)
+    _pose_home(arm_left, arm_right)
     hub.display.off()
 
 
-def breathing_show_routine(arm_left, arm_right, head, hub):
-    """PAS 4 — ~10s: brațe + cap + matrix; sunet inspir/expir doar PCM pe ESP dacă uplodat."""
+def breathing_show_routine(arm_left, arm_right, hub):
+    """PAS 4 — ~10s: brațe + matrix inspir/expir."""
     inh_ms = _BSHOW_INH_MS
     exh_ms = _BSHOW_EXH_MS
     n = _BSHOW_CYCLES
     _matrix_clear(hub)
     for k in range(n):
         print("Breathing show", k + 1, "/", n)
-        breathe_in_pose(arm_left, arm_right, head)
+        breathe_in_pose(arm_left, arm_right)
         _matrix_wave_inspire(hub, inh_ms)
-        breathe_out_pose(arm_left, arm_right, head)
+        breathe_out_pose(arm_left, arm_right)
         _matrix_wave_expire(hub, exh_ms)
     _matrix_clear(hub)
+    _pose_home(arm_left, arm_right)
     print("Breathing show end")
 
 
 def wheels_forward(w_left, w_right):
     w_left.run_time(_WHEEL_SPEED_DEG_S, _WHEEL_MS, then=Stop.BRAKE, wait=False)
-    w_right.run_time(_WHEEL_SPEED_DEG_S, _WHEEL_MS, then=Stop.BRAKE, wait=True)
+    w_right.run_time(_WHEEL_SPEED_DEG_S, _WHEEL_MS, then=Stop.BRAKE, wait=False)
+    _pulse_wait(_WHEEL_MS)
 
 
 def wheels_backward(w_left, w_right):
     w_left.run_time(-_WHEEL_SPEED_DEG_S, _WHEEL_MS, then=Stop.BRAKE, wait=False)
-    w_right.run_time(-_WHEEL_SPEED_DEG_S, _WHEEL_MS, then=Stop.BRAKE, wait=True)
+    w_right.run_time(-_WHEEL_SPEED_DEG_S, _WHEEL_MS, then=Stop.BRAKE, wait=False)
+    _pulse_wait(_WHEEL_MS)
 
 
 def wheels_turn_left(w_left, w_right, pivot_ms=None):
     ms = _WHEEL_PIVOT_MS if pivot_ms is None else pivot_ms
     w_left.run_time(-_WHEEL_PIVOT_SPEED, ms, then=Stop.BRAKE, wait=False)
-    w_right.run_time(_WHEEL_PIVOT_SPEED, ms, then=Stop.BRAKE, wait=True)
+    w_right.run_time(_WHEEL_PIVOT_SPEED, ms, then=Stop.BRAKE, wait=False)
+    _pulse_wait(ms)
 
 
 def wheels_turn_right(w_left, w_right, pivot_ms=None):
     ms = _WHEEL_PIVOT_MS if pivot_ms is None else pivot_ms
     w_left.run_time(_WHEEL_PIVOT_SPEED, ms, then=Stop.BRAKE, wait=False)
-    w_right.run_time(-_WHEEL_PIVOT_SPEED, ms, then=Stop.BRAKE, wait=True)
+    w_right.run_time(-_WHEEL_PIVOT_SPEED, ms, then=Stop.BRAKE, wait=False)
+    _pulse_wait(ms)
 
 
 def _mini_circle_left(w_left, w_right, *, steps=_ANGRY_CIRCLE_STEPS, pivot_ms=_ANGRY_PIVOT_MS):
@@ -481,49 +506,45 @@ def wheels_brake(w_left, w_right):
     w_right.stop()
 
 
-def run_cmd(arm_left, arm_right, w_left, w_right, head, hub, code):
+def run_cmd(arm_left, arm_right, w_left, w_right, hub, code):
     simple_cmd = False
     if code == 1:
         print("Dance!")
-        dance_arms_and_wheels(arm_left, arm_right, w_left, w_right, head)
+        dance_arms_and_wheels(arm_left, arm_right, w_left, w_right)
     elif code == 2:
         print("Repose")
-        repose_pose(arm_left, arm_right, head)
+        repose_pose(arm_left, arm_right)
         simple_cmd = True
     elif code == 3:
         print("Left arm")
-        left_arm_up_pose(arm_left, arm_right, head)
+        left_arm_up_pose(arm_left, arm_right)
         simple_cmd = True
     elif code == 4:
         print("Right arm")
-        right_arm_up_pose(arm_left, arm_right, head)
+        right_arm_up_pose(arm_left, arm_right)
         simple_cmd = True
     elif code == 5:
         print("Breathe in")
-        breathe_in_with_matrix(arm_left, arm_right, head, hub)
+        breathe_in_with_matrix(arm_left, arm_right, hub)
         simple_cmd = True
     elif code == 6:
         print("Breathe out")
-        breathe_out_pose(arm_left, arm_right, head)
+        breathe_out_pose(arm_left, arm_right)
         simple_cmd = True
     elif code == 7:
         print("Drive FWD")
-        _head_to(head, _HEAD_TILT, wait=False)
         wheels_forward(w_left, w_right)
         simple_cmd = True
     elif code == 8:
         print("Drive back")
-        _head_down(head, wait=False)
         wheels_backward(w_left, w_right)
         simple_cmd = True
     elif code == 9:
         print("Turn L")
-        _head_to(head, _HEAD_TILT, wait=False)
         wheels_turn_left(w_left, w_right)
         simple_cmd = True
     elif code == 10:
         print("Turn R")
-        _head_to(head, _HEAD_TILT, wait=False)
         wheels_turn_right(w_left, w_right)
         simple_cmd = True
     elif code == 11:
@@ -532,30 +553,31 @@ def run_cmd(arm_left, arm_right, w_left, w_right, head, hub, code):
         simple_cmd = True
     elif code == 12:
         print("Breathing SHOW")
-        breathing_show_routine(arm_left, arm_right, head, hub)
+        breathing_show_routine(arm_left, arm_right, hub)
     elif code == 13:
         print("Emotion SAD")
-        emotion_sad_routine(arm_left, arm_right, head, hub)
+        emotion_sad_routine(arm_left, arm_right, hub)
     elif code == 14:
         print("Emotion SURPRISED")
-        emotion_surprised_routine(arm_left, arm_right, head, hub)
+        emotion_surprised_routine(arm_left, arm_right, hub)
     elif code == 15:
         print("Emotion HAPPY")
-        emotion_happy_routine(arm_left, arm_right, w_left, w_right, head, hub)
+        emotion_happy_routine(arm_left, arm_right, w_left, w_right, hub)
     elif code == 16:
         print("Emotion ANGRY")
-        emotion_angry_routine(arm_left, arm_right, w_left, w_right, head, hub)
+        emotion_angry_routine(arm_left, arm_right, w_left, w_right, hub)
     elif code == 17:
         print("Emotion MELTDOWN")
-        emotion_meltdown_routine(arm_left, arm_right, w_left, w_right, head, hub)
+        emotion_meltdown_routine(arm_left, arm_right, w_left, w_right, hub)
     else:
         pass
 
     if simple_cmd:
-        wait(350)
-        _arms_home(arm_left, arm_right)
+        _pulse_wait(350)
+
     if code != 0:
         _draw_T(hub)
+        _pose_home(arm_left, arm_right)
 
 
 def main():
@@ -565,17 +587,19 @@ def main():
     arm_right = Motor(ARM_RIGHT_PORT, positive_direction=Direction.COUNTERCLOCKWISE)
     wheel_left = Motor(WHEEL_LEFT_PORT)
     wheel_right = Motor(WHEEL_RIGHT_PORT, positive_direction=Direction.COUNTERCLOCKWISE)
-    head = Motor(HEAD_PORT)
 
+    global _PR
     while True:
         # (Re)initializare PupRemote — daca ESP se deconecteaza, refacem canalele.
         try:
             pr = PUPRemoteHub(SENSOR_PORT, max_packet_size=16)
             pr.add_channel("obj", to_hub_fmt="b")
             pr.add_channel("cmd", to_hub_fmt="b")
+            _PR = pr
             print("LPF2 init OK — astept comenzi")
             _signal_lpf2_connected(hub)
         except OSError as e:
+            _PR = None
             print("LPF2 init err:", e, "— retry 2s")
             wait(2000)
             continue
@@ -594,12 +618,24 @@ def main():
                     cmd_val = 0
 
                 if cmd_val != 0 and cmd_val != last_cmd:
-                    run_cmd(arm_left, arm_right, wheel_left, wheel_right, head, hub, cmd_val)
+                    try:
+                        run_cmd(arm_left, arm_right, wheel_left, wheel_right, hub, cmd_val)
+                    except Exception as e:
+                        print("run_cmd eroare cmd=", cmd_val, ":", e)
+                        try:
+                            _arms_home(arm_left, arm_right)
+                        except Exception:
+                            pass
+                        try:
+                            _draw_T(hub)
+                        except Exception:
+                            pass
 
                 last_cmd = cmd_val
                 wait(LOOP_DELAY_MS)
         except OSError as e:
             print("LPF2 pierdut:", e, "— reconectez...")
+            _PR = None
             wait(1000)
 
 
