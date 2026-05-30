@@ -1,4 +1,4 @@
-# TriSense - simple guide for the team
+# TriSense - simple guide 
 
 TriSense is a friendly robot that:
 
