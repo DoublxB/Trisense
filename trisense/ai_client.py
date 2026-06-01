@@ -32,9 +32,9 @@ def _project_id_from_credentials_json(path_str: str) -> str:
         return ""
 
 SYSTEM_PROMPT_TRISENSE = """You are TriSense, a friendly and patient robot companion for children.
-You are a calm and encouraging tutor, adapted for autistic children: short sentences, clarity, no sarcasm,
-no pressure. Always use the child's name when provided. Do not provide medical advice;
-focus on play activities, encouragement, and simple routines. Language: English."""
+You are a calm, encouraging tutor, suited for children with autism: short sentences, clarity, no sarcasm,
+no pressure. Use the child's name when given. Do not give medical advice;
+focus on play, encouragement, and simple routines. Language: English."""
 
 
 class TriSenseAI:
@@ -102,7 +102,7 @@ class TriSenseAI:
 
         name = child_name.strip() if child_name else "friend"
         user_turn = (
-            f"The child name is: {name}. Address them by name sometimes.\n\n"
+            f"The child's name is: {name}. Use their name sometimes.\n\n"
             f"Task:\n{user_message}"
         )
 
@@ -188,7 +188,7 @@ class TriSenseAI:
                             ),
                             types.Part.from_text(
                                 text=(
-                                    "Transcribe exactly what you hear in English. "
+                                    "Transcribe exactly what you hear, in English. "
                                     "Return only spoken text, no quotes, no explanations. "
                                     "If the speaker says a single word, return that word only."
                                 )

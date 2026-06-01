@@ -14,8 +14,8 @@ logger = logging.getLogger(__name__)
 
 _client: Optional[object] = None
 
-GCP_TTS_VOICE = os.environ.get("GCP_TTS_VOICE", "en-US-Neural2-F").strip() or "en-US-Neural2-F"
-GCP_TTS_LANGUAGE = os.environ.get("GCP_TTS_LANGUAGE", "en-US").strip() or "en-US"
+GCP_TTS_VOICE = os.environ.get("GCP_TTS_VOICE", "ro-RO-Neural2-A").strip() or "ro-RO-Neural2-A"
+GCP_TTS_LANGUAGE = os.environ.get("GCP_TTS_LANGUAGE", "ro-RO").strip() or "ro-RO"
 GCP_TTS_SAMPLE_RATE_HZ = int(os.environ.get("GCP_TTS_SAMPLE_RATE_HZ", "24000"))
 
 
@@ -51,7 +51,7 @@ def synthesize_linear16_pcm(text: str, *, voice_name: Optional[str] = None) -> t
     client = _get_client()
     if client is None:
         return b"", GCP_TTS_SAMPLE_RATE_HZ
-    voice = (voice_name or GCP_TTS_VOICE or "en-US-Neural2-F").strip()
+    voice = (voice_name or GCP_TTS_VOICE or "ro-RO-Neural2-A").strip()
     lang = GCP_TTS_LANGUAGE
     sr = GCP_TTS_SAMPLE_RATE_HZ
     if sr not in (8000, 12000, 16000, 22050, 24000):

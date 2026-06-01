@@ -1223,7 +1223,9 @@ def _play_pcm_stream_from_conn(conn, sample_rate, total_len, pr_sensor=None):
             gc.collect()
         except Exception:
             pass
-        pre_target = min(8192, total_len)
+        # Pre-buffer mai mare (~340 ms la 24 kHz stereo) ca sa absoarba jitter WiFi
+        # si pauzele LPF2 → evita underrun-ul DMA care se aude "sacadat".
+        pre_target = min(32768, total_len)
         pre = bytearray()
         while len(pre) < pre_target:
             try:
@@ -1240,7 +1242,7 @@ def _play_pcm_stream_from_conn(conn, sample_rate, total_len, pr_sensor=None):
             pre.extend(chunk0)
             _tick()
         last_err = None
-        for ibuf_try in (16384, 8192, 32768, 4096):
+        for ibuf_try in (32768, 16384, 8192, 4096):
             try:
                 audio = I2S(
                     0,

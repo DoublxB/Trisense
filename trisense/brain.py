@@ -62,6 +62,14 @@ class TriSenseBrain:
         ("breathe_in", "Breathe in!",  5),
     ]
 
+    _EMOTION_LABEL_EN = {
+        "happy": "happy",
+        "sad": "sad",
+        "surprised": "surprised",
+        "angry": "angry",
+        "meltdown": "meltdown",
+    }
+
     def __init__(self) -> None:
         self.memory = MemoryStore()
         self.ai = TriSenseAI()
@@ -101,8 +109,8 @@ class TriSenseBrain:
         return ok
 
     def _synthesize_tcp_pcm(self, msg: str) -> tuple[bytes, int]:
-        """PCM mono pentru TCP către ESP: după env TRISENSE_TTS_PCM_SOURCE (Cloud vs Gemini)."""
-        raw = (os.environ.get("TRISENSE_TTS_PCM_SOURCE") or "gemini").strip().lower()
+        """PCM mono pentru TCP către ESP: fallback Cloud/Gemini după sursa principală."""
+        raw = (os.environ.get("TRISENSE_TTS_PCM_SOURCE") or "edge_tts").strip().lower()
         google_modes = ("google_cloud", "cloud_tts", "cloud", "gcp")
         allow_gem = (os.environ.get("TRISENSE_TTS_PCM_ALLOW_GEMINI_FALLBACK") or "0").strip().lower() in (
             "1",
@@ -161,8 +169,9 @@ class TriSenseBrain:
 
         TRISENSE_TTS_PC=1: voce și pe laptop (dacă laptop_speaker nu e False).
 
-        TRISENSE_TTS_PCM_SOURCE=google_cloud: Neural2 (Vertex / GCP, același proiect ca trial).
-        TRISENSE_TTS_PCM_ALLOW_GEMINI_FALLBACK=1: dacă Cloud TTS eșuează, folosește și Gemini TTS.
+        TRISENSE_TTS_PCM_SOURCE=edge_tts: principal local (edge-tts), apoi fallback Cloud/Gemini.
+        TRISENSE_TTS_PCM_SOURCE=google_cloud: principal Cloud Neural2 (Vertex / GCP), apoi fallback local/Gemini.
+        TRISENSE_TTS_PCM_ALLOW_GEMINI_FALLBACK=1: dacă Cloud/Gemini eșuează, păstrează rezervă.
 
         Citire env la fiecare apel (load_dotenv).
         """
@@ -199,7 +208,7 @@ class TriSenseBrain:
                     pcm, sample_rate = self.tts.synthesize_pcm(msg)
                     if pcm:
                         logger.info(
-                            "TTS local pyttsx3 (fallback): PCM %d B @ %d Hz (~%.2f s).",
+                            "TTS local (edge-tts/pyttsx3 fallback): PCM %d B @ %d Hz (~%.2f s).",
                             len(pcm),
                             sample_rate,
                             len(pcm) / (2 * max(1, sample_rate)),
@@ -485,14 +494,14 @@ class TriSenseBrain:
                 "right_arm": f"Right arm up, {name}!",
                 "breathe_in": f"Breathe in, {name}.",
                 "breathe_out": f"Breathe out, {name}.",
-                "breathing_show": f"Follow my arms, lights and breathing sounds — two breaths, {name}.",
-                "forward": f"Driving forward, {name}!",
-                "backward": f"Backing up.",
+                "breathing_show": f"Watch my arms, lights and sounds — two breaths, {name}.",
+                "forward": f"Moving forward, {name}!",
+                "backward": f"Moving back.",
                 "turn_left": f"Turning left.",
                 "turn_right": f"Turning right.",
                 "guess_emotion": f"Let's play Guess the Emotion, {name}!",
                 "follow_pattern": f"Let's play Follow the Pattern, {name}!",
-                "emotion_meltdown": f"Okay, {name}, meltdown emotion!",
+                "emotion_meltdown": f"Okay, {name}, the meltdown emotion!",
             }.get(action, f"Okay, {name}!")
             # Act. 6 — Guess the Emotion
             if action == "guess_emotion":
@@ -662,7 +671,10 @@ class TriSenseBrain:
         time.sleep(emotion_dur.get(emotion_action, 12.0))
         time.sleep(0.8)
 
-        question = f"What emotion was I showing, {name}? Happy, sad, surprised, angry, or meltdown?"
+        question = (
+            f"What emotion was I showing, {name}? "
+            "Happy, sad, surprised, angry, or meltdown?"
+        )
         logger.info("Act.6 [4/4]: redau intrebarea pe robot...")
         self._say(question, robot_only=robot_only, esp_ip=esp_ip, wait=True)
         # Porneste automat ascultarea microfonului, ca sa nu mai fie nevoie de script manual.
@@ -689,8 +701,9 @@ class TriSenseBrain:
             detected = "meltdown"
 
         expected = self._current_emotion or "happy"
+        exp_en = self._EMOTION_LABEL_EN.get(expected, expected)
         if detected == expected:
-            response = f"Amazing, {name}! Correct — I was {expected}!"
+            response = f"Amazing, {name}! Correct — I was {exp_en}!"
             self._say(response, robot_only=robot_only, esp_ip=esp_ip)
             time.sleep(0.5)
             self._publish({"action": "dance"})
@@ -699,12 +712,13 @@ class TriSenseBrain:
             logger.info("Act.6 terminat corect; emotie=%s", expected)
             return
         elif detected:
+            det_en = self._EMOTION_LABEL_EN.get(detected, detected)
             response = (
-                f"Not quite, {name}. I was actually feeling {expected}. "
-                f"But great try — you said {detected}!"
+                f"Not quite, {name}. I was actually {exp_en}. "
+                f"But great try — you said {det_en}!"
             )
         else:
-            response = f"I wasn't sure I heard you. I was feeling {expected}! Try again next time!"
+            response = f"I didn't quite hear you. I was {exp_en}! Try again next time!"
 
         self._say(response, robot_only=robot_only, esp_ip=esp_ip)
         self.state = RobotState.SELECTIE_JOC
@@ -753,7 +767,7 @@ class TriSenseBrain:
             time.sleep(2.5)
             self._pattern_step += 1
             if self._pattern_step >= total:
-                response = f"Perfect, {name}! Amazing!"
+                response = f"Perfect, {name}! Wonderful!"
                 self._say(response, robot_only=robot_only, esp_ip=esp_ip)
                 time.sleep(0.5)
                 self._publish({"action": "dance"})
@@ -778,7 +792,7 @@ class TriSenseBrain:
                 if action:
                     response = f"Not quite! Step {self._pattern_step + 1} is {exp_label}. Try again!"
                 else:
-                    response = f"I didn't catch that. Step {self._pattern_step + 1} is {exp_label}?"
+                    response = f"I didn't understand. Step {self._pattern_step + 1} is {exp_label}?"
             else:
                 response = f"Something went wrong. Let's start over!"
                 self.state = RobotState.SELECTIE_JOC
@@ -793,13 +807,13 @@ class TriSenseBrain:
     def _run_primul_salut(self) -> None:
         """No name in memory: ask child name and save JSON."""
         msg = (
-            "This is your first meeting with TriSense. Tell the child you are happy to meet them. "
-            "Ask for their name briefly in one friendly sentence."
+            "First meeting with TriSense. Tell the child you are happy to meet them. "
+            "Ask their name briefly in one friendly sentence, in English."
         )
         if self.ai.available:
             text = self.ai.reply(msg, "friend")
         else:
-            text = "Hi! I am TriSense. What is your name?"
+            text = "Hi! I'm TriSense. What's your name?"
         self._announce(text)
         try:
             raw = input("Enter child name (then Enter): ").strip()
@@ -816,7 +830,7 @@ class TriSenseBrain:
         """ID 1 interpreted as face / greeting."""
         name = self._child_name or "friend"
         prompt = (
-            f"Child {name} has just been recognized (face/greeting ID signal). "
+            f"The child {name} was just recognized (greeting/face signal). "
             "Reply very briefly, encouraging, in English."
         )
         text = self.ai.reply(prompt, name) if self.ai.available else f"Hi, {name}! Great to see you!"
@@ -833,8 +847,8 @@ class TriSenseBrain:
         """ID 2+ = LEGO object class learned in HuskyLens Object Classification mode."""
         name = self._child_name or "friend"
         prompt = (
-            f"Child {name} showed a LEGO piece/build recognized by camera (class ID {object_class_id}). "
-            "Praise them in one short sentence and propose a tiny play task."
+            f"The child {name} showed a LEGO piece or build recognized by the camera (class ID {object_class_id}). "
+            "Praise them in one short sentence and suggest a small play activity, in English."
         )
         text = self.ai.reply(prompt, name) if self.ai.available else f"Great, {name}, I recognized your build!"
         self._announce(text)
@@ -852,11 +866,11 @@ class TriSenseBrain:
         name = self._child_name or "friend"
         text = (
             self.ai.reply(
-                f"The round ended. Encourage {name} for participating, very briefly.",
+                f"The round is over. Encourage {name} for taking part, very briefly, in English.",
                 name,
             )
             if self.ai.available
-            else f"Great job, {name}! See you in the next play round!"
+            else f"Great job, {name}! See you next play round!"
         )
         self._announce(text)
         self.metrics.log(
@@ -924,7 +938,12 @@ class TriSenseBrain:
             logger.info("Memory: child = %s", name)
 
         self.state = RobotState.SELECTIE_JOC
-        greet = "Hi! I am TriSense."
+        greet_name = self._child_name or name or ""
+        greet = (
+            f"Hi! I'm TriSense. Great to see you, {greet_name}!"
+            if greet_name
+            else "Hi! I'm TriSense."
+        )
         self._announce(greet, retain_speak_topic=False)
 
         q = self.mqtt.vision_queue
