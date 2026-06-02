@@ -49,6 +49,10 @@ TOPIC_VISION_TAGS = "vision/tags"
 TOPIC_ROBOT_CONTROL = "robot/control"
 # Salut retained — ESP-ul care se conecteaza dupa PC primeste ultimul mesaj la subscribe
 TOPIC_ROBOT_SPEAK = "robot/speak"
+# Build the Model (Turnul lui Hanoi) — PC publica contextul tintei (retained) si cere o captura.
+# Bridge-ul ESP32-CAM (vision_esp32cam_bridge.py) asculta aceste topicuri.
+TOPIC_VISION_BUILD_CONTEXT = "vision/build_context"
+TOPIC_VISION_CAPTURE_REQ = "vision/capture_req"
 
 # ID client PC (trebuie diferit de ESP32)
 MQTT_CLIENT_ID_PC = os.environ.get("MQTT_CLIENT_ID_PC", "TriSense_PC_Brain_3")

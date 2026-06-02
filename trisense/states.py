@@ -17,6 +17,7 @@ class RobotState(Enum):
     FINAL = auto()          # recompensa / inchidere runda
     GUESS_EMOTION = auto()  # Act. 6: asteapta ghicirea emotiei
     FOLLOW_PATTERN = auto() # Act. 7: asteapta replicarea pasului curent
+    BUILD_MODEL = auto()    # Build the Model (Turnul lui Hanoi): asteapta verificarea CAM
 
 
 # Semantica ID (HuskyLens Object Classification pe ESP32; clase invatate pe senzor):

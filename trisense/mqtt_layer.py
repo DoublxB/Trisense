@@ -44,7 +44,20 @@ def parse_vision_payload(raw: str) -> Optional[dict[str, Any]]:
     try:
         obj = json.loads(raw)
         if isinstance(obj, dict) and "id" in obj:
-            return {"id": int(obj["id"]), "raw": raw}
+            parsed: dict[str, Any] = {"id": int(obj["id"]), "raw": raw}
+            # Build the Model: pastram campurile de verificare daca exista.
+            if "match" in obj:
+                parsed["match"] = bool(obj["match"])
+            if "match_score" in obj:
+                try:
+                    parsed["match_score"] = float(obj["match_score"])
+                except (TypeError, ValueError):
+                    pass
+            if obj.get("build_model"):
+                parsed["build_model"] = True
+            if "level" in obj:
+                parsed["level"] = obj["level"]
+            return parsed
     except (json.JSONDecodeError, ValueError, TypeError):
         pass
     m = _LEGACY_ID_RE.search(raw)
@@ -155,6 +168,19 @@ class MqttBrainClient:
             return True
         except Exception as e:
             logger.warning("publish_control esuat: %s", e)
+            return False
+
+    def publish(self, topic: str, payload: dict[str, Any], *, retain: bool = False) -> bool:
+        """Trimite un JSON pe orice topic (ex. vision/build_context, vision/capture_req)."""
+        if not self._client or not self._connected.is_set():
+            logger.debug("MQTT indisponibil; nu pot publica pe %s: %s", topic, payload)
+            return False
+        try:
+            data = json.dumps(payload, ensure_ascii=False)
+            self._client.publish(topic, data, qos=0, retain=retain)
+            return True
+        except Exception as e:
+            logger.warning("publish pe %s esuat: %s", topic, e)
             return False
 
     def publish_speak_retained(self, speak_text: str) -> bool:

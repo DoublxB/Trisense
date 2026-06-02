@@ -112,6 +112,10 @@ pending_speak = None
 speak_queue = []  # FIFO TTS Gemini: MQTT „speak” + BV (PAS 12)
 pending_voice_tcp = None  # {"host","port","duration_ms"} dupa MQTT {"listen": true}
 pending_play_greeting = False  # MQTT: redare greeting.pcm (fara Gemini)
+# Butoane Hub -> ESP prin LPF2 (canal "btn"): 1=stanga (listen), 2=dreapta (captura CAM).
+pending_button_listen = False
+pending_capture_req = False
+BUTTON_LISTEN_MS = 5000  # buton stanga: ~5s inregistrare voce
 _last_mqtt_speak_ts = 0
 _last_mqtt_speak_txt = ""
 _last_mqtt_speak_topic = ""  # dedupe doar acelasi text pe *acelasi* topic (<2s)
@@ -1383,6 +1387,37 @@ def _spin_hub(pr_sensor, count=40):
         time.sleep_ms(2)
 
 
+def btn(code):
+    """Callback LPF2 buton Hub -> ESP. 1=stanga (listen), 2=dreapta (captura CAM).
+
+    Doar seteaza flag-uri (handle-uite in bucla principala) ca sa nu facem I/O retea
+    in timpul tranzactiei LPF2 (altfel risc „line dead”).
+    """
+    global pending_button_listen, pending_capture_req
+    try:
+        c = int(code)
+    except Exception:
+        return None
+    if c == 1:
+        pending_button_listen = True
+    elif c == 2:
+        pending_capture_req = True
+    return None
+
+
+def _voice_host_fallback():
+    """IP-ul PC-ului pentru voce TCP: PC_VOICE_IP din secrets.py, altfel MQTT_BROKER (acelasi PC)."""
+    try:
+        from secrets import PC_VOICE_IP as _pv
+
+        h = (_pv or "").strip() if isinstance(_pv, str) else ""
+        if h:
+            return h
+    except ImportError:
+        pass
+    return (MQTT_BROKER or "").strip()
+
+
 # ==========================================
 # 1. LEGO imediat (inainte de WiFi)
 # ==========================================
@@ -1391,6 +1426,8 @@ pr.add_channel("obj", to_hub_fmt="b")
 # Canal comandă hub LEGO (UINT8): 1 dance, 2–6 brate/respiri, 7–11 roți C+D (înainte/înapoi/pivot/stop).
 # Tabelul trebuie să coincidă cu docstring din main.py (Pybricks).
 pr.add_channel("cmd", to_hub_fmt="b")
+# Canal buton Hub -> ESP (from_hub UINT8): trebuie adaugat IDENTIC si pe Hub (main.py), in aceeasi ordine.
+pr.add_command("btn", from_hub_fmt="b")
 print("Comunicare LPF2 activata. Astept Hub-ul...")
 # Fereastra critica de boot: daca nu apelam process() in primele sute de ms,
 # Hub-ul raporteaza ENODEV si intra in retry loop.
@@ -1404,6 +1441,7 @@ _CMD_HOLD_MS_LONG = 4500          # dans pe hub blochează mai mult
 _CMD_HOLD_MS_BREATHING_SHOW_MS = 20000  # PAS 4: rutina Hub ~10 s + braț + margine
 _CMD_HOLD_MS_EMOTION_MS = 32000   # Act. 6: rutine Hub amplificate (max ~28s meltdown) + margine
 _CMD_HOLD_MS_PATTERN_STEP_MS = 2800  # Act. 7: durata per pas pattern
+_CMD_HOLD_MS_BUILD_MODEL_MS = 40000  # Build the Model: tinta ramane afisata cat construieste copilul
 
 # Act. 7 Follow the Pattern — secventa de (ticks_deadline, cmd_code) programata de PC via MQTT.
 _pattern_seq_events = []
@@ -1443,6 +1481,10 @@ _MQTT_ACTION_TO_CMD = {
     "emotion_surprised": 14,  # brate sus rapid + flash
     "emotion_angry": 16,    # brate rigide + flash agresiv
     "emotion_meltdown": 17,  # agitatie intensa: brate + pivot + fata/spate
+    # Build the Model (Turnul lui Hanoi) — afiseaza modelul tinta pe matricea Hub
+    "build_model_1": 18,    # turn vertical
+    "build_model_2": 19,    # linie orizontala
+    "build_model_3": 20,    # forma L
 }
 
 _PCM_GREETING_ACTIONS = (
@@ -1617,6 +1659,8 @@ def _mqtt_control_cb(topic, msg):
                 ms = _CMD_HOLD_MS_BREATHING_SHOW_MS
             elif resolved in (13, 14, 15, 16, 17):
                 ms = _CMD_HOLD_MS_EMOTION_MS
+            elif resolved in (18, 19, 20):
+                ms = _CMD_HOLD_MS_BUILD_MODEL_MS
             elif resolved == 1:
                 ms = _CMD_HOLD_MS_LONG
             else:
@@ -1725,6 +1769,7 @@ def _expire_and_push_hub_cmd():
 def _robot_loop_body(connected, tts_pr_sensor, end_delay_ms):
     """O iteratie: MQTT, voce, hub debug, update canal. tts_pr_sensor=None daca heartbeat e async."""
     global mqtt, pending_speak, speak_queue, pcm_breathing_queue, pending_voice_tcp, pending_play_greeting, last_hub_connected, hub_fail_cycles, t_last_hub_print
+    global pending_button_listen, pending_capture_req
     global ultimul_timp_mqtt, _last_mqtt_retry_ms
     global _PAS4_HUB_LINK_OK, _BREATHE_GUARD_UNTIL_MS, _pattern_seq_events
 
@@ -1777,6 +1822,32 @@ def _robot_loop_body(connected, tts_pr_sensor, end_delay_ms):
             tri_play_greeting_pcm(pr_audio, "greeting.pcm")
         except Exception as e:
             print(">>> Replay salut PCM err:", e)
+
+    # Buton STANGA pe Hub -> listen ~5s (acelasi mecanism ca MQTT {"listen":true}).
+    if pending_button_listen:
+        pending_button_listen = False
+        _host = _voice_host_fallback()
+        if _host:
+            pending_voice_tcp = {
+                "host": _host,
+                "port": VOICE_TCP_PORT_DEFAULT,
+                "duration_ms": BUTTON_LISTEN_MS,
+            }
+            print(">>> Buton STANGA: listen", BUTTON_LISTEN_MS, "ms ->", _host)
+        else:
+            print(">>> Buton STANGA: nu stiu IP-ul PC (PC_VOICE_IP/MQTT_BROKER lipsesc).")
+
+    # Buton DREAPTA pe Hub -> cere o captura ESP32-CAM (bridge asculta vision/capture_req).
+    if pending_capture_req:
+        pending_capture_req = False
+        if mqtt:
+            try:
+                mqtt.publish(b"vision/capture_req", b'{"capture":true}')
+                print(">>> Buton DREAPTA: cerere captura CAM publicata (vision/capture_req).")
+            except Exception as _ce:
+                print(">>> Buton DREAPTA publish err:", _ce)
+        else:
+            print(">>> Buton DREAPTA: MQTT offline, nu pot cere captura.")
 
     if pending_voice_tcp and wlan.isconnected():
         _vc = pending_voice_tcp

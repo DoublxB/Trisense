@@ -18,6 +18,9 @@ Canal PupRemote "cmd" (uint8) — trebuie aliniat cu main_robot.py pe ESP:
   15  emotie fericit: dans brate + roti fata/spate (Act. 6 Guess the Emotion)
   16  emotie furie: brate rigide + „sprancene” pe ecran + flash rapid (Act. 6 Guess the Emotion)
   17  emotie meltdown: agitatie intensa, brate ample, pivot + fata/spate (Act. 6 Guess the Emotion)
+  18  build model tinta TURN (Build the Model / Hanoi): coloana verticala pe matrice, ramane afisat
+  19  build model tinta LINIE: rand orizontal de 3 pe matrice, ramane afisat
+  20  build model tinta L: forma L pe matrice, ramane afisat
 
 Montaj fizic diferit → poti folosi invertire pe un Motor sau schimba C/D sus/jos.
 
@@ -28,7 +31,7 @@ PAS 4 Pe PC: ghid vocal Audio TCP (PCM de pe laptop); MQTT doar action breathing
 
 from pybricks.hubs import PrimeHub
 from pybricks.pupdevices import Motor
-from pybricks.parameters import Port, Direction, Stop
+from pybricks.parameters import Port, Direction, Stop, Button
 from pybricks.tools import wait
 from pupremote_hub import PUPRemoteHub
 
@@ -215,6 +218,67 @@ def _draw_warning_triangle(hub, brightness=100):
     # Baza triunghi
     for col in range(5):
         hub.display.pixel(4, col, brightness)
+
+
+def _draw_build_tower(hub, brightness=90):
+    """Build the Model nivel 1 — turn dreptunghiular (4 caramizi 2x4 portocalii stivuite).
+
+    Profil din fata pe 5x5:
+      . X X X .
+      . X X X .
+      . X X X .
+      . X X X .
+      . . . . .
+    """
+    hub.display.off()
+    for row in (0, 1, 2, 3):
+        for col in (1, 2, 3):
+            hub.display.pixel(row, col, brightness)
+
+
+def _draw_build_pyramid(hub, brightness=90):
+    """Build the Model nivel 2 — piramida albastra in trepte (2 baze, 1 mijloc, 1 varf 2x2).
+
+    Profil din fata pe 5x5:
+      . . X . .   <- 2x2 varf
+      . X X X .   <- 2x4 mijloc
+      X X X X X   <- 2x (2x4) baza
+      . . . . .
+      . . . . .
+    """
+    hub.display.off()
+    # baza (rand 2): toata latimea
+    for col in range(5):
+        hub.display.pixel(2, col, brightness)
+    # mijloc (rand 1): 3 coloane
+    for col in (1, 2, 3):
+        hub.display.pixel(1, col, brightness)
+    # varf (rand 0): 1 coloana centrala
+    hub.display.pixel(0, 2, brightness)
+
+
+def _draw_build_robot(hub, brightness=90):
+    """Build the Model nivel 3 — robot negru in cruce (baza, gat, brate 2x6, cap 2x2).
+
+    Profil din fata pe 5x5:
+      . . X . .   <- cap (2x2)
+      X X X X X   <- brate (2x6)
+      . . X . .   <- gat (2x2)
+      . X X X .   <- baza strat 2 (2x4)
+      . X X X .   <- baza strat 1 (2x4)
+    """
+    hub.display.off()
+    # cap (rand 0): centru
+    hub.display.pixel(0, 2, brightness)
+    # brate (rand 1): toata latimea
+    for col in range(5):
+        hub.display.pixel(1, col, brightness)
+    # gat (rand 2): centru
+    hub.display.pixel(2, 2, brightness)
+    # baza 2 straturi (randuri 3 si 4): 3 coloane
+    for row in (3, 4):
+        for col in (1, 2, 3):
+            hub.display.pixel(row, col, brightness)
 
 
 _ARM_MOVE_MS = 350
@@ -508,6 +572,7 @@ def wheels_brake(w_left, w_right):
 
 def run_cmd(arm_left, arm_right, w_left, w_right, hub, code):
     simple_cmd = False
+    keep_display = False
     if code == 1:
         print("Dance!")
         dance_arms_and_wheels(arm_left, arm_right, w_left, w_right)
@@ -569,11 +634,27 @@ def run_cmd(arm_left, arm_right, w_left, w_right, hub, code):
     elif code == 17:
         print("Emotion MELTDOWN")
         emotion_meltdown_routine(arm_left, arm_right, w_left, w_right, hub)
+    elif code == 18:
+        print("Build model: TOWER")
+        _draw_build_tower(hub)
+        keep_display = True
+    elif code == 19:
+        print("Build model: PYRAMID")
+        _draw_build_pyramid(hub)
+        keep_display = True
+    elif code == 20:
+        print("Build model: ROBOT")
+        _draw_build_robot(hub)
+        keep_display = True
     else:
         pass
 
     if simple_cmd:
         _pulse_wait(350)
+
+    # Build the Model: lasam modelul tinta pe matrice ca sa-l copieze copilul.
+    if keep_display:
+        return
 
     if code != 0:
         _draw_T(hub)
@@ -595,6 +676,8 @@ def main():
             pr = PUPRemoteHub(SENSOR_PORT, max_packet_size=16)
             pr.add_channel("obj", to_hub_fmt="b")
             pr.add_channel("cmd", to_hub_fmt="b")
+            # Buton Hub -> ESP (acelasi canal ca in main_robot.py, aceeasi ordine).
+            pr.add_command("btn", from_hub_fmt="b")
             _PR = pr
             print("LPF2 init OK — astept comenzi")
             _signal_lpf2_connected(hub)
@@ -605,12 +688,32 @@ def main():
             continue
 
         last_cmd = 0
+        last_buttons = ()
 
         try:
             while True:
                 obj = pr.call("obj")
                 if obj and obj > 0:
                     print("Obiect detectat ID:", obj)
+
+                # Butoane Hub -> ESP: stanga=listen (voce), dreapta=captura CAM (Build the Model).
+                try:
+                    pressed = hub.buttons.pressed()
+                except Exception:
+                    pressed = ()
+                if Button.LEFT in pressed and Button.LEFT not in last_buttons:
+                    try:
+                        pr.call("btn", 1)
+                        print("Buton STANGA -> ESP (listen)")
+                    except Exception as be:
+                        print("btn stanga err:", be)
+                if Button.RIGHT in pressed and Button.RIGHT not in last_buttons:
+                    try:
+                        pr.call("btn", 2)
+                        print("Buton DREAPTA -> ESP (captura CAM)")
+                    except Exception as be:
+                        print("btn dreapta err:", be)
+                last_buttons = pressed
 
                 cmd = pr.call("cmd")
                 cmd_val = cmd if isinstance(cmd, int) else 0

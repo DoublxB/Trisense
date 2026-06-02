@@ -238,21 +238,36 @@ BUILD_MODEL_LEVELS: list[dict[str, Any]] = [
         "level": 1,
         "action": "build_model_1",
         "name": "tower",
-        "description": "a small vertical tower of 2 or 3 stacked LEGO bricks in the center",
+        "description": (
+            "A tall rectangular tower made of 4 orange LEGO 2x4 bricks stacked directly "
+            "on top of each other. The result is a single straight column, about 4 bricks "
+            "tall and 2 studs wide. All bricks are the same orange colour and perfectly aligned."
+        ),
     },
     {
         "level": 2,
         "action": "build_model_2",
-        "name": "line",
-        "description": "a horizontal row of 3 LEGO bricks placed side by side",
+        "name": "pyramid",
+        "description": (
+            "A blue LEGO pyramid with 3 levels. "
+            "Base: two 2x4 blue bricks placed side by side (full wide base). "
+            "Middle: one 2x4 blue brick centred on top of the base. "
+            "Top: one 2x2 blue brick centred on the middle brick. "
+            "The silhouette is a stepped pyramid shape, getting narrower towards the top, "
+            "all in blue."
+        ),
     },
     {
         "level": 3,
         "action": "build_model_3",
-        "name": "l_shape",
+        "name": "robot",
         "description": (
-            "an L-shape made of 3 LEGO bricks: two stacked vertically "
-            "plus one extending to the right at the bottom"
+            "A black LEGO construction that looks like a cross or a robot from the front. "
+            "It has a clear T or cross silhouette: a vertical column in the center with a wide "
+            "horizontal piece sticking out on both sides in the upper half, and a small square "
+            "piece on top. All pieces are black. "
+            "Accept any construction that clearly shows a cross or T shape made of black LEGO bricks, "
+            "even if the exact brick sizes vary slightly."
         ),
     },
 ]
@@ -269,6 +284,7 @@ def build_model_verify_prompt(description: str) -> str:
     desc = (description or "a LEGO build").strip()
     return f"""You verify a child's LEGO build against a target pattern shown on a robot display.
 Target pattern: {desc}
+The build may be held in hand or placed on a surface — focus only on the shape and arrangement of the LEGO bricks, ignore the background and hands.
 Output ONLY valid JSON with these fields:
 - "id": integer (0=unclear/empty, 2=LEGO build clearly visible)
 - "match": boolean (true if the build clearly matches the target pattern)

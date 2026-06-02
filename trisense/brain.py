@@ -9,6 +9,7 @@ import logging
 import os
 import queue
 import random
+import threading
 import time
 import unicodedata
 from typing import Any, Optional
@@ -20,10 +21,12 @@ from trisense.cloud_tts import (
     cloud_tts_ready,
     synthesize_linear16_pcm,
 )
+from trisense.cognitive_games import build_model_level
 from trisense.config import (
     ESP_AUDIO_TCP_PORT,
     ESP_SPEAK_MAX_CHARS,
     TOPIC_ROBOT_CONTROL,
+    TOPIC_VISION_BUILD_CONTEXT,
     TRISENSE_TTS_OVER_TCP,
     VOICE_TCP_PORT,
     vision_id_to_action_map,
@@ -88,6 +91,22 @@ class TriSenseBrain:
         # Act. 7
         self._pattern_sequence: list[str] = []
         self._pattern_step: int = 0
+        # Build the Model (Turnul lui Hanoi)
+        self._build_level: int = 1
+        self._build_awaiting: bool = False
+        self._build_start: Optional[float] = None
+        self._build_attempts: int = 0
+        self._build_lock = threading.Lock()
+        self._build_timer: Optional[threading.Timer] = None
+        # Secunde de constructie inainte de captura CAM (env override).
+        self._build_window_s: float = float(
+            (os.environ.get("BUILD_MODEL_WINDOW_SEC") or "30").strip() or "30"
+        )
+        # Scor minim pentru a accepta potrivirea daca modelul nu intoarce "match" explicit.
+        # Default 0.4 — tolerant la variante de forma (nivel 3 robot da max ~0.4 cu prag strict).
+        self._build_match_threshold: float = float(
+            (os.environ.get("BUILD_MODEL_MATCH_THRESHOLD") or "0.4").strip() or "0.4"
+        )
 
     def _publish_listen(self, *, duration_ms: int = 10000) -> bool:
         """Cere robotului sa porneasca ascultarea microfonului fara script manual."""
@@ -433,6 +452,20 @@ class TriSenseBrain:
         if cq and ("followpattern" in cq or "urmeazatiparul" in cq or "urmeazamodelul" in cq):
             return "follow_pattern"
 
+        # Build the Model (Turnul lui Hanoi)
+        if "hanoi" in bl_ascii:
+            return "build_model"
+        if "build" in words and (
+            "model" in words or "tower" in words or "shape" in words or "build" in words
+        ) and ("model" in words or "tower" in words or "shape" in words):
+            return "build_model"
+        if ("construieste" in bl_ascii or "construim" in bl_ascii or "constructie" in bl_ascii) and (
+            "model" in bl_ascii or "turn" in bl_ascii
+        ):
+            return "build_model"
+        if cq and ("buildthemodel" in cq or "buildmodel" in cq or "buildthetower" in cq or "towergame" in cq):
+            return "build_model"
+
         # Demo juriu: salut fix + braț, pivot dreapta, braț, pivot stânga
         if "hello to the judges" in bl or "salut juriu" in bl_ascii or "salut juriului" in bl_ascii:
             return "judges_demo"
@@ -480,6 +513,16 @@ class TriSenseBrain:
             self._validate_pattern_step(t, name, robot_only=robot_only, esp_ip=esp_ip)
             return
 
+        # Build the Model: ignora vocea in timp ce copilul construieste (nu LLM, nu confuzie).
+        if self.state == RobotState.BUILD_MODEL:
+            logger.info("Build the Model: transcript ignorat in timp ce asteptam butonul dreapta: %s", t[:80])
+            self._say(
+                f"Keep building, {name}! Press the right button when you're ready!",
+                robot_only=robot_only,
+                esp_ip=esp_ip,
+            )
+            return
+
         action = self._detect_motor_action(t)
         if action:
             if not self.mqtt.wait_connected(timeout=5.0):
@@ -501,6 +544,7 @@ class TriSenseBrain:
                 "turn_right": f"Turning right.",
                 "guess_emotion": f"Let's play Guess the Emotion, {name}!",
                 "follow_pattern": f"Let's play Follow the Pattern, {name}!",
+                "build_model": f"Let's play Build the Model, {name}!",
                 "emotion_meltdown": f"Okay, {name}, the meltdown emotion!",
             }.get(action, f"Okay, {name}!")
             # Act. 6 — Guess the Emotion
@@ -510,6 +554,10 @@ class TriSenseBrain:
             # Act. 7 — Follow the Pattern
             if action == "follow_pattern":
                 self._start_follow_pattern(name, robot_only=robot_only, esp_ip=esp_ip)
+                return
+            # Build the Model (Turnul lui Hanoi)
+            if action == "build_model":
+                self._start_build_model(name, robot_only=robot_only, esp_ip=esp_ip)
                 return
             if action == "judges_demo":
                 self._run_judges_demo(robot_only=robot_only, esp_ip=esp_ip)
@@ -804,6 +852,192 @@ class TriSenseBrain:
                 self._publish_listen(duration_ms=10000)
         logger.info("Act.7 pas=%d/%d; detectat=%s, expected=%s", self._pattern_step, total, action, expected)
 
+    # ------------------------------------------------------------------
+    # Build the Model (Turnul lui Hanoi) — model pe matrice Hub + verificare ESP32-CAM
+    # ------------------------------------------------------------------
+
+    _BUILD_INSTRUCTIONS = {
+        "tower": (
+            "Stack four orange bricks on top of each other to make a tall tower!"
+        ),
+        "pyramid": (
+            "Build a blue pyramid! Put two bricks side by side at the bottom, "
+            "one brick in the middle, and one small brick on top!"
+        ),
+        "robot": (
+            "Build the black robot! Two bricks stacked for the base, "
+            "a small brick on top, then a long brick for the arms, "
+            "and a small brick as the head!"
+        ),
+    }
+
+    def _clear_build_context(self) -> None:
+        """Sterge contextul build de pe bridge (retained gol)."""
+        try:
+            self.mqtt.publish(TOPIC_VISION_BUILD_CONTEXT, {}, retain=True)
+        except Exception as e:
+            logger.debug("Build: nu pot curata build_context: %s", e)
+
+    def _start_build_model(self, name: str, *, robot_only: bool, esp_ip: Optional[str]) -> None:
+        """
+        Build the Model (inspirat Turnul lui Hanoi):
+        1) afiseaza modelul tinta pe matricea Hub,
+        2) anunta copilul ce sa construiasca,
+        3) asteapta poza declansata de butonul DREAPTA de pe Hub (fara timer),
+        4) verificarea CAM se face in _handle_vision.
+        """
+        # Anuleaza eventual watchdog ramas dintr-o runda anterioara.
+        self._cancel_build_timer()
+
+        level_def = build_model_level(self._build_level)
+        level = int(level_def.get("level", self._build_level))
+        action = str(level_def.get("action", "build_model_1"))
+        shape = str(level_def.get("name", "tower"))
+        description = str(level_def.get("description", "a LEGO build"))
+        self._build_attempts += 1
+        self._current_activity = "BUILD_MODEL"
+
+        logger.info(
+            "Build the Model [start]: level=%d shape=%s action=%s attempt=%d",
+            level, shape, action, self._build_attempts,
+        )
+
+        # 1) Trimite contextul tintei la bridge (retained: il prinde si daca porneste mai tarziu).
+        self.mqtt.publish(
+            TOPIC_VISION_BUILD_CONTEXT,
+            {
+                "build_model": True,
+                "level": level,
+                "pattern": shape,
+                "description": description,
+            },
+            retain=True,
+        )
+
+        # 2) Afiseaza modelul pe matricea Hub.
+        self._publish({"action": action})
+        time.sleep(0.4)
+
+        # 3) Anunta sarcina: copilul construieste, apoi apasa butonul DREAPTA cand e gata.
+        instruction = self._BUILD_INSTRUCTIONS.get(shape, "Copy the model on my screen with LEGO bricks!")
+        intro = f"Look at my screen, {name}! {instruction}"
+        self._say(intro, robot_only=robot_only, esp_ip=esp_ip, wait=True)
+        time.sleep(0.3)
+        self._say(
+            "When you finish, press the right button on me and I'll check it!",
+            robot_only=robot_only,
+            esp_ip=esp_ip,
+            wait=True,
+        )
+
+        # 4) Asteptam poza (declansata de butonul DREAPTA -> ESP -> vision/capture_req -> bridge).
+        self.state = RobotState.BUILD_MODEL
+        self._build_start = time.time()
+        self._build_awaiting = True
+        logger.info("Build the Model: astept butonul DREAPTA pentru captura (fara timer).")
+
+        # Watchdog lung: daca nu vine niciun rezultat, nu ramanem blocati in BUILD_MODEL.
+        self._arm_build_timer(name, esp_ip=esp_ip)
+
+    def _arm_build_timer(self, name: str, *, esp_ip: Optional[str]) -> None:
+        timeout = float((os.environ.get("BUILD_MODEL_RESULT_TIMEOUT_SEC") or "90").strip() or "90")
+
+        def _fire() -> None:
+            self._build_timeout(name, esp_ip=esp_ip)
+
+        t = threading.Timer(max(5.0, timeout), _fire)
+        t.daemon = True
+        self._build_timer = t
+        t.start()
+
+    def _cancel_build_timer(self) -> None:
+        t = self._build_timer
+        self._build_timer = None
+        if t is not None:
+            try:
+                t.cancel()
+            except Exception:
+                pass
+
+    def _build_timeout(self, name: str, *, esp_ip: Optional[str]) -> None:
+        """Nu a venit rezultat de la ESP32-CAM in timp util."""
+        with self._build_lock:
+            if not self._build_awaiting or self.state != RobotState.BUILD_MODEL:
+                return
+            self._build_awaiting = False
+            self.state = RobotState.SELECTIE_JOC
+        logger.warning("Build the Model: timeout asteptand butonul/rezultatul CAM.")
+        self._clear_build_context()
+        self._say(
+            f"No worries, {name}! Tell me when you want to build again!",
+            robot_only=True,
+            esp_ip=esp_ip,
+        )
+
+    def _validate_build_model(self, data: dict[str, Any]) -> None:
+        """Proceseaza rezultatul ESP32-CAM (match / match_score) pentru runda curenta."""
+        with self._build_lock:
+            if not self._build_awaiting:
+                logger.info("Build the Model: rezultat CAM ignorat (nu astept inca o captura).")
+                return
+            self._build_awaiting = False
+            self._cancel_build_timer()
+
+        name = self._child_name or self.memory.get_child_name() or "friend"
+        raw = data.get("raw", "")
+        match = data.get("match")
+        score = data.get("match_score")
+        # Daca match nu vine explicit, decidem pe baza scorului.
+        if match is None and isinstance(score, (int, float)):
+            match = float(score) >= self._build_match_threshold
+        success = bool(match)
+
+        duration = None
+        if self._build_start is not None:
+            duration = round(time.time() - self._build_start, 1)
+
+        score_txt = f"{float(score):.2f}" if isinstance(score, (int, float)) else "n/a"
+        logger.info(
+            "Build the Model [result]: match=%s score=%s level=%d durata=%ss raw=%s",
+            success, score_txt, self._build_level, duration, (raw[:120] if isinstance(raw, str) else raw),
+        )
+
+        self.metrics.log(
+            nume_copil=name,
+            id_vazut=int(data.get("id", 0)),
+            timp_reactie_ms=(duration * 1000.0 if duration is not None else None),
+            stare="BUILD_MODEL",
+            extra={
+                "activity": "build_model",
+                "level": self._build_level,
+                "attempts": self._build_attempts,
+                "match": success,
+                "match_score": (float(score) if isinstance(score, (int, float)) else None),
+                "build_duration_s": duration,
+            },
+        )
+
+        self._clear_build_context()
+
+        if success:
+            self._say(f"Yes! Great building, {name}! High five!", robot_only=True, esp_ip=self._last_esp_ip)
+            time.sleep(0.4)
+            self._publish({"action": "right_arm"})
+            time.sleep(2.0)
+            self._publish({"action": "dance"})
+            # Avanseaza la nivelul urmator (pana la ultimul disponibil).
+            self._build_level += 1
+            self._build_attempts = 0
+        else:
+            self._say(
+                f"Almost, {name}! That was tricky. We can try the same model again!",
+                robot_only=True,
+                esp_ip=self._last_esp_ip,
+            )
+
+        self.state = RobotState.SELECTIE_JOC
+        self._build_start = None
+
     def _run_primul_salut(self) -> None:
         """No name in memory: ask child name and save JSON."""
         msg = (
@@ -888,6 +1122,11 @@ class TriSenseBrain:
         """ID din JSON MQTT = clasa HuskyLens (Object Classification). Optional: VISION_ID_TO_ACTION."""
         vision_id = int(data["id"])
         recv = data.get("_received_at", time.time())
+
+        # Build the Model: rezultatul verificarii CAM are prioritate cat suntem in joc.
+        if self.state == RobotState.BUILD_MODEL and self._build_awaiting:
+            self._validate_build_model(data)
+            return
 
         act = self._vision_id_to_motion.get(str(vision_id))
         if act:
