@@ -1,8 +1,8 @@
-# TriSense - simple guide for the team
+# TriSense - simple guide 
 
 TriSense is a friendly robot that:
 
-- sees with the camera (HuskyLens),
+- sees with the camera (HuskyLens/Future update(ESpcam32)),
 - speaks in a friendly voice,
 - recognizes a child and LEGO pieces,
 - responds through a "brain" running on the laptop.
