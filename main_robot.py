@@ -978,6 +978,7 @@ def tri_record_send_tcp(pc_host, port, duration_ms, pr_sensor=None):
         sock.send(b"TRIS" + struct.pack("<I", total_bytes))
         # Dupa handshake, permitem transfer de durata.
         sock.settimeout(45.0)
+        # INMP441 L/R=GND -> audio pe RIGHT. MONO citea LEFT -> zero la voce.
         audio_in = I2S(
             1,
             sck=Pin(I2S_BCLK),
@@ -985,30 +986,34 @@ def tri_record_send_tcp(pc_host, port, duration_ms, pr_sensor=None):
             sd=Pin(MIC_I2S_SD),
             mode=I2S.RX,
             bits=16,
-            format=I2S.MONO,
+            format=I2S.STEREO,
             rate=MIC_RATE,
-            ibuf=16000,
+            ibuf=32000,
         )
         audio_in.irq(_i2s_irq_cb)
-        buf = bytearray(2048)
+        stereo_buf = bytearray(4096)
+        mono_buf = bytearray(2048)
         sent = 0
         while sent < total_bytes:
-            chunk = min(len(buf), total_bytes - sent)
-            n = _i2s_readinto_nb(audio_in, memoryview(buf)[:chunk], hub)
-            if not n:
+            n_stereo = _i2s_readinto_nb(audio_in, stereo_buf, hub)
+            if not n_stereo:
                 continue
-            mv = memoryview(buf)[:n]
-            # Trimite in bucati mici + process() — send() blocant fara tick omoara LPF2.
+            n_frames = n_stereo // 4
+            for i in range(n_frames):
+                mono_buf[i * 2] = stereo_buf[i * 4 + 2]
+                mono_buf[i * 2 + 1] = stereo_buf[i * 4 + 3]
+            chunk = min(n_frames * 2, total_bytes - sent)
+            mv = memoryview(mono_buf)[:chunk]
             off = 0
-            while off < n:
-                end = min(off + 1024, n)
+            while off < chunk:
+                end = min(off + 1024, chunk)
                 sock.send(mv[off:end])
                 off = end
                 try:
                     hub.process()
                 except Exception:
                     pass
-            sent += n
+            sent += chunk
         print("Voce TCP: trimis", sent, "octeti catre", pc_host, ":", int(port))
     except Exception as e:
         print("Voce TCP trimite esuat:", e)
