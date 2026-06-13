@@ -1,0 +1,55 @@
+graph TB
+    classDef hub fill:#ffd166,stroke:#333,stroke-width:2px;
+    classDef lms fill:#06d6a0,stroke:#333,stroke-width:2px;
+    classDef cam fill:#118ab2,stroke:#333,stroke-width:2px,color:#fff;
+    classDef pc fill:#073b4c,stroke:#333,stroke-width:2px,color:#fff;
+    classDef broker fill:#e63946,stroke:#333,stroke-width:2px,color:#fff;
+    classDef cloud fill:#8338ec,stroke:#333,stroke-width:2px,color:#fff;
+    classDef copil fill:#ffffff,stroke:#999,stroke-width:1px;
+
+    Copil(["Copil"])
+
+    subgraph Nivel1["Nivelul fizic - robotul LEGO"]
+        Hub["LEGO SPIKE Prime Hub - Pybricks<br/>motoare brate/roti, matrice LED 5x5,<br/>butoane stanga/dreapta"]
+    end
+
+    subgraph Nivel2["Nivelul de comunicatie"]
+        LMS["LMS-ESP32 - MicroPython<br/>WiFi, client MQTT,<br/>audio I2S: difuzor + microfon"]
+    end
+
+    subgraph Nivel3["Nivelul cognitiv - PC"]
+        Brain["TriSenseBrain - Python<br/>stari, jocuri, dialog, metrici"]
+        Bridge["vision_esp32cam_bridge.py<br/>puntea de viziune"]
+        Broker["Broker MQTT<br/>Mosquitto"]
+    end
+
+    Cam["ESP32-CAM<br/>server HTTP /capture"]
+
+    subgraph Cloud["Servicii cloud"]
+        Gemini["Google Gemini<br/>dialog + STT + Vision"]
+        TTS["Sinteza vocala<br/>Cloud TTS / edge-tts"]
+    end
+
+    Copil -- "vorbeste / apasa butoane /<br/>construieste LEGO" --> Hub
+    Hub -- "btn: evenimente butoane" --> LMS
+    LMS -- "cmd: coduri actiuni<br/>LPF2 / PupRemote" --> Hub
+
+    LMS -- "TCP 8765: voce copil (PCM)" --> Brain
+    Brain -- "TCP 8766: vocea robotului (PCM)" --> LMS
+
+    Brain <-- "robot/control, robot/speak<br/>vision/tags, vision/build_context" --> Broker
+    LMS <-- "robot/control, robot/speak<br/>vision/capture_req" --> Broker
+    Bridge <-- "vision/capture_req,<br/>vision/build_context, vision/tags" --> Broker
+
+    Bridge -- "HTTP: cerere foto JPEG" --> Cam
+    Bridge -- "imagine + descriere tinta" --> Gemini
+    Brain -- "transcriere + dialog" --> Gemini
+    Brain -- "text de rostit" --> TTS
+
+    class Hub hub;
+    class LMS lms;
+    class Cam cam;
+    class Brain,Bridge pc;
+    class Broker broker;
+    class Gemini,TTS cloud;
+    class Copil copil;

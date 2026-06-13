@@ -8,7 +8,7 @@ graph TD
     classDef lms fill:#06d6a0,stroke:#333,stroke-width:2px;
     classDef cam fill:#118ab2,stroke:#333,stroke-width:2px;
     classDef breadRed fill:#e63946,stroke:#333,stroke-width:1px,color:#fff;
-    classDef breadWhite fill:#ffffff,stroke:#999,stroke-width:1px;
+    classDef mic fill:#ffffff,stroke:#999,stroke-width:1px;
     classDef audio fill:#ef476f,stroke:#333,stroke-width:1px;
     classDef pc fill:#073b4c,stroke:#fff,stroke-width:1px,color:#fff;
 
@@ -26,10 +26,7 @@ graph TD
         GND_Bus(("Sina GND"))
     end
 
-    subgraph Mini_Breadboard_White["Mini breadboard ALB - Microfon"]
-        Mic["INMP441"]
-    end
-
+    Mic["INMP441<br/>montat direct pe robot"]
     Amp["MAX98357A"]
     Speaker["Difuzor 4 ohm"]
     Cam["ESP32-CAM AI-Thinker"]
@@ -65,7 +62,7 @@ graph TD
     class LMS lms;
     class Cam cam;
     class BCLK_Bus,WS_Bus,GND_Bus breadRed;
-    class Mic breadWhite;
+    class Mic mic;
     class Amp,Speaker audio;
     class PC pc;
 ```

@@ -978,6 +978,9 @@ def tri_record_send_tcp(pc_host, port, duration_ms, pr_sensor=None):
         sock.send(b"TRIS" + struct.pack("<I", total_bytes))
         # Dupa handshake, permitem transfer de durata.
         sock.settimeout(45.0)
+        # INMP441 L/R=GND -> audio pe canalul RIGHT (bytes 2-3 din fiecare frame stereo).
+        # format=I2S.MONO citea doar LEFT (bytes 0-1) -> semnal zero pentru voce.
+        # Fix: citim STEREO si trimitem catre PC doar canalul RIGHT ca PCM mono.
         audio_in = I2S(
             1,
             sck=Pin(I2S_BCLK),
@@ -985,30 +988,34 @@ def tri_record_send_tcp(pc_host, port, duration_ms, pr_sensor=None):
             sd=Pin(MIC_I2S_SD),
             mode=I2S.RX,
             bits=16,
-            format=I2S.MONO,
+            format=I2S.STEREO,
             rate=MIC_RATE,
-            ibuf=16000,
+            ibuf=32000,
         )
         audio_in.irq(_i2s_irq_cb)
-        buf = bytearray(2048)
+        stereo_buf = bytearray(4096)
+        mono_buf   = bytearray(2048)
         sent = 0
         while sent < total_bytes:
-            chunk = min(len(buf), total_bytes - sent)
-            n = _i2s_readinto_nb(audio_in, memoryview(buf)[:chunk], hub)
-            if not n:
+            n_stereo = _i2s_readinto_nb(audio_in, stereo_buf, hub)
+            if not n_stereo:
                 continue
-            mv = memoryview(buf)[:n]
-            # Trimite in bucati mici + process() — send() blocant fara tick omoara LPF2.
+            n_frames = n_stereo // 4
+            for i in range(n_frames):
+                mono_buf[i * 2]     = stereo_buf[i * 4 + 2]
+                mono_buf[i * 2 + 1] = stereo_buf[i * 4 + 3]
+            chunk = min(n_frames * 2, total_bytes - sent)
+            mv = memoryview(mono_buf)[:chunk]
             off = 0
-            while off < n:
-                end = min(off + 1024, n)
+            while off < chunk:
+                end = min(off + 1024, chunk)
                 sock.send(mv[off:end])
                 off = end
                 try:
                     hub.process()
                 except Exception:
                     pass
-            sent += n
+            sent += chunk
         print("Voce TCP: trimis", sent, "octeti catre", pc_host, ":", int(port))
     except Exception as e:
         print("Voce TCP trimite esuat:", e)
@@ -1371,9 +1378,9 @@ def tri_accept_play_tcp_once(pr_sensor=None):
 # ==========================================
 # Config retea (Inventika / MQTT pe PC — valorile sunt in secrets.py pe ESP sau default mai jos)
 # ==========================================
-WIFI_SSID = scr_get("WIFI_SSID", "inventika")
-WIFI_PASS = scr_get("WIFI_PASS", "!#inventika2025")
-MQTT_BROKER = scr_get("MQTT_BROKER", "192.168.80.106")
+WIFI_SSID = scr_get("WIFI_SSID", "Orange-292q-2.4G")
+WIFI_PASS = scr_get("WIFI_PASS", "Y8kCA4vx")
+MQTT_BROKER = scr_get("MQTT_BROKER", "192.168.100.134")
 CLIENT_ID = "TriSense_Licenta_Robot"
 TOPIC_VISION_TAGS = b"vision/tags"
 TOPIC_ROBOT_CONTROL = b"robot/control"
@@ -1437,7 +1444,9 @@ _spin_hub(pr, 300)
 _pending_cmd = 0
 _pending_cmd_until_ms = 0
 _CMD_HOLD_MS = 1800
-_CMD_HOLD_MS_LONG = 4500          # dans pe hub blochează mai mult
+_CMD_HOLD_MS_LONG = 10000         # dans simplu pe hub (~8s rutina + buffer)
+_CMD_HOLD_MS_DANCE_WITH_ME = 12000  # Act. 2.3: dans + muzica fundal
+_CMD_HOLD_MS_STOP_GO_MS = 4000    # Stop&Go: afisare 1/0 + lumina
 _CMD_HOLD_MS_BREATHING_SHOW_MS = 20000  # PAS 4: rutina Hub ~10 s + braț + margine
 _CMD_HOLD_MS_EMOTION_MS = 32000   # Act. 6: rutine Hub amplificate (max ~28s meltdown) + margine
 _CMD_HOLD_MS_PATTERN_STEP_MS = 2800  # Act. 7: durata per pas pattern
@@ -1485,6 +1494,11 @@ _MQTT_ACTION_TO_CMD = {
     "build_model_1": 18,    # turn vertical
     "build_model_2": 19,    # linie orizontala
     "build_model_3": 20,    # forma L
+    # Stop & Go (cmd 21-23; 18-20 rezervate pentru Build the Model)
+    "stop_go_go": 21,
+    "stop_go_freeze": 22,
+    "stop_go_end": 23,
+    "dance_with_me": 1,
 }
 
 _PCM_GREETING_ACTIONS = (
@@ -1577,14 +1591,17 @@ def _mqtt_control_cb(topic, msg):
                 dur = int(o.get("duration_ms") or VOICE_RECORD_MS_DEFAULT)
             except (TypeError, ValueError):
                 dur = VOICE_RECORD_MS_DEFAULT
-            if host and 200 <= dur <= 12000:
+            if host and 200 <= dur <= 30000:
                 pending_voice_tcp = {
                     "host": host,
                     "port": vport,
                     "duration_ms": dur,
                 }
             elif listen_on:
-                print("Voce: lipseste pc_host/pc_ip sau PC_VOICE_IP in secrets.py")
+                if not host:
+                    print("Voce: lipseste pc_host/pc_ip sau PC_VOICE_IP in secrets.py")
+                else:
+                    print("Voce: duration_ms invalid:", dur, "(acceptat 200-30000)")
         # Hub LEGO + salut PCM stabil (PAS 3)
         global _pending_cmd, _pending_cmd_until_ms, pending_play_greeting
 
@@ -1661,6 +1678,14 @@ def _mqtt_control_cb(topic, msg):
                 ms = _CMD_HOLD_MS_EMOTION_MS
             elif resolved in (18, 19, 20):
                 ms = _CMD_HOLD_MS_BUILD_MODEL_MS
+            elif resolved in (21, 22):
+                ms = _CMD_HOLD_MS_STOP_GO_MS
+            elif (
+                isinstance(action_raw, str)
+                and action_raw.strip().lower() == "dance_with_me"
+                and resolved == 1
+            ):
+                ms = _CMD_HOLD_MS_DANCE_WITH_ME
             elif resolved == 1:
                 ms = _CMD_HOLD_MS_LONG
             else:

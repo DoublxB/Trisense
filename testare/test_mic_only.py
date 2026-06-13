@@ -41,22 +41,23 @@ time.sleep_ms(200)
 mic = None
 try:
     mic = I2S(
-        0,
+        1,
         sck=Pin(SCK_PIN),
         ws=Pin(WS_PIN),
         sd=Pin(SD_PIN),
         mode=I2S.RX,
         bits=16,
-        format=I2S.MONO,
+        format=I2S.STEREO,
         rate=RATE,
-        ibuf=8000,
+        ibuf=16000,
     )
-    print("I2S RX init OK (16-bit MONO).")
+    print("I2S RX init OK (16-bit STEREO, extragem canal LEFT).")
 except Exception as e:
     print("EROARE I2S init:", e)
     raise SystemExit
 
-buf = bytearray(2048)
+# STEREO = 4 bytes/sample (L int16 + R int16); buf dublu fata de MONO
+buf = bytearray(4096)
 
 # INMP441 are nevoie de ~200ms dupa ce porneste BCLK ca sa se sincronizeze.
 # Fara delay, pe a doua rulare (dupa deinit anterior) da tot 0x00.
@@ -80,10 +81,12 @@ for runda in range(10):
         print("Runda %2d | EROARE: readinto=0" % (runda + 1))
         continue
 
+    # STEREO: bytes 0-1 = LEFT, bytes 2-3 = RIGHT (se repeta).
+    # INMP441 L/R=GND -> audio pe RIGHT (WS=LOW = RIGHT in Philips I2S).
     mx = 0
-    n_samples = n // 2
-    for i in range(n_samples):
-        s = struct.unpack_from("<h", buf, i * 2)[0]
+    n_frames = n // 4
+    for i in range(n_frames):
+        s = struct.unpack_from("<h", buf, i * 4 + 2)[0]  # RIGHT channel
         v = abs(s)
         if v > mx:
             mx = v

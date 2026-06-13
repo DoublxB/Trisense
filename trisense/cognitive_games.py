@@ -125,6 +125,18 @@ def nback_should_yes(seq: list[str], index: int, level: int) -> bool:
     return seq[index] == seq[index - level]
 
 
+def parse_seconds_estimate(transcript: str) -> Optional[float]:
+    """Extrage o estimare de secunde din raspunsul copilului."""
+    t = (transcript or "").lower()
+    m = re.search(r"(\d+(?:[.,]\d+)?)", t)
+    if not m:
+        return None
+    try:
+        return float(m.group(1).replace(",", "."))
+    except ValueError:
+        return None
+
+
 def parse_yes_no(transcript: str) -> Optional[bool]:
     bl = (transcript or "").lower()
     if any(k in bl for k in ("yes", "yeah", "yep", "da", "correct", "match")):
