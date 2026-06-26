@@ -1,0 +1,38 @@
+\chapter{Testare, evaluare și considerații etice}
+\label{cap:evaluare}
+
+\section{Metodologie și rezultate funcționale}
+
+Sistemul a fost evaluat exclusiv pe hardware real, în condiții apropiate de utilizarea efectivă: robotul complet asamblat, ESP32-CAM poziționat către zona de construcție, un laptop în aceeași rețea Wi-Fi și brokerul Mosquitto local. Am urmărit trei dimensiuni — corectitudinea funcțională a celor trei fluxuri (comandă, voce, viziune), calitatea percepută a interacțiunii și acuratețea verificării vizuale — fiecare verigă fiind testată întâi izolat (cu scripturi dedicate în folderul \texttt{testare/}), apoi în lanț complet. Pe lângă testarea tehnică, structura jocurilor și felul în care robotul oferă feedback au fost discutate cu Marius și Andreea Lumpan, psihoterapeuți care practică LEGO-Based Therapy în România \cite{lumpanagerpres2025}; rolul lor nu a fost să „certifice” clinic sistemul, ci să filtreze deciziile de design prin experiență terapeutică reală.
+
+Pe \emph{lanțul de comandă} (PC$\rightarrow$MQTT$\rightarrow$ESP32$\rightarrow$LPF2$\rightarrow$hub), comenzile s-au executat consistent, cu întârziere insesizabilă; canalul de butoane a funcționat fiabil după adăugarea mecanismului de \emph{debounce}. Pe \emph{lanțul vocal}, problema redării sacadate a fost rezolvată definitiv prin buffering — după mărirea pre-buffer-ului TCP și a buffer-ului DMA la 32~KB nu am mai înregistrat nicio întrerupere — iar latența totală a unui schimb, dominată de apelurile cloud, s-a situat tipic în câteva secunde, acoperită natural de faptul că robotul „se gândește”. Pe \emph{lanțul de viziune}, după calibrarea din secțiunea~\ref{sec:viziune}, toate construcțiile corecte au fost acceptate, iar cele greșite respinse cu scoruri net inferioare pragului (în jur de 0,2), marja dintre cele două categorii fiind suficient de largă încât pragul să nu fie sensibil la valoarea exactă.
+
+\section{Date din sesiunile de joc}
+
+Infrastructura de metrici a fost validată în sesiuni reale de joc cu un copil (consemnat sub prenumele David), desfășurate în mai--iunie 2026. Tabelul~\ref{tab:sesiuni} extrage câteva evenimente reprezentative.
+
+\begin{table}[htb]
+    \centering
+    \caption{Evenimente extrase din jurnalul de metrici al sesiunilor de joc.}
+    \label{tab:sesiuni}
+    \begin{tabular}{|l|>{\raggedright\arraybackslash}p{6cm}|l|}
+        \hline
+        \textbf{Activitate} & \textbf{Eveniment înregistrat} & \textbf{Rezultat} \\
+        \hline
+        Guess the Emotion & emoția-țintă „happy”, răspuns detectat „happy” & reușit \\
+        Dance with me & durată 12~s, implicare detectată & reușit \\
+        Build the Model (niv. 1) & prima încercare, scor 0,20, durată 38~s & respins corect\textsuperscript{*} \\
+        Sesiune completă & durată totală 21,1 minute & — \\
+        \hline
+    \end{tabular}
+
+    \raggedright\footnotesize\textsuperscript{*} fotografie trimisă înainte de finalizarea construcției — sistemul a respins corect și a încurajat continuarea.
+\end{table}
+
+Dincolo de valorile individuale, sesiunile au confirmat două proprietăți de design. Întâi, rapoartele generate automat (text și JSON) sunt direct inteligibile pentru un adult fără pregătire tehnică. Apoi, mutarea controlului pe butoanele hub-ului a schimbat vizibil dinamica interacțiunii: copilul nu se mai uită la laptop, întreaga sesiune se desfășoară între el și robot.
+
+\section{Limitări și considerații etice}
+
+Evaluarea onestă impune consemnarea limitelor actuale: \textbf{dependența de internet} (dialogul, transcrierea și viziunea folosesc servicii cloud; offline, sistemul păstrează doar mișcările, animațiile și salutul pre-generat), \textbf{fereastra fixă de înregistrare} de 5~s (care poate trunchia enunțuri lungi — soluția corectă fiind detecția automată a sfârșitului vorbirii), \textbf{sensibilitatea viziunii} la iluminare slabă și încadrare parțială, și \textbf{evaluarea în mediu controlat} (sesiunile de test s-au desfășurat în mediu familiar, nu în cabinet; validarea cu copii neurodivergenți în context clinic real rămâne etapa următoare, condiționată de avizele etice).
+
+Un sistem destinat copiilor neurodivergenți ridică obligații etice tratate ca parte din specificație: \textbf{fără pretenții de diagnostic} (TriSense este un instrument de suport în sesiuni ghidate de un adult, iar fiecare raport poartă explicit această mențiune); \textbf{terapeutul rămâne în control} (robotul propune activități, adultul decide continuarea, pauza sau oprirea); \textbf{protecția datelor} (numele copilului este stocat doar local, fotografiile sunt procesate punctual și nu arhivate, iar orice înregistrare a unei sesiuni reale necesită consimțământul informat al părinților, conform GDPR); și \textbf{proiectare pentru siguranță emoțională} (feedback exclusiv pozitiv, fără penalizare, cu pauze de respirație la semne de frustrare).

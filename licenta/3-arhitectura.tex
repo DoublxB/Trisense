@@ -1,0 +1,166 @@
+\chapter{Arhitectura sistemului TriSense}
+\label{cap:arhitectura}
+
+\section{Privire de ansamblu}
+
+Forma finală a arhitecturii nu a fost desenată pe hârtie de la început — a rezultat din constrângerile fiecărei componente. Hub-ul LEGO are motoare și butoane, dar nu are Wi-Fi. Placa ESP32 are Wi-Fi și interfață audio, dar nu poate rula modele de inteligență artificială. PC-ul poate orice, dar nu are corp. Soluția firească a fost un sistem distribuit pe trei niveluri, în care fiecare dispozitiv face exact ceea ce știe să facă cel mai bine:
+
+\begin{enumerate}
+    \item \textbf{Nivelul fizic — hub-ul LEGO SPIKE Prime} (firmware Pybricks, fișierul \texttt{main.py}). Controlează motoarele brațelor și ale roților, desenează animații și tipare pe matricea de LED-uri $5\times5$ și citește butoanele fizice. Nu ia nicio decizie: primește coduri numerice de acțiune de la ESP32 pe canalul PupRemote \texttt{cmd} și raportează apăsările de buton pe canalul \texttt{btn}.
+    \item \textbf{Nivelul de comunicație — placa LMS-ESP32} (MicroPython, fișierul \texttt{main\_robot.py}). Este puntea dintre lumea LEGO și rețea: menține conexiunea Wi-Fi și sesiunea MQTT, traduce mesajele de control primite de la PC în comenzi LPF2 pentru hub, redă pe difuzorul I2S audio primit prin TCP și înregistrează audio de la microfon. Conectată fizic la portul A al hub-ului, de unde primește și alimentare.
+    \item \textbf{Nivelul cognitiv — aplicația de pe PC} (Python, pachetul \texttt{trisense}, clasa \texttt{TriSenseBrain}). Aici se iau toate deciziile: gestionarea stărilor, dialogul cu modelul de limbaj, transcrierea și sinteza vocală, logica jocurilor, metricile de sesiune.
+\end{enumerate}
+
+Al patrulea participant este modulul \textbf{ESP32-CAM}, conectat independent la rețeaua Wi-Fi: un server HTTP minimal care livrează o fotografie JPEG la fiecare cerere pe endpoint-ul \texttt{/capture}. Decuplarea camerei de robot a fost o decizie practică — camera trebuie să încadreze masa de construcție, nu să se miște odată cu robotul. Imaginea de ansamblu a sistemului este redată în figura~\ref{fig:arhitectura}.
+
+\begin{figure}[htb]
+    \centering
+    \resizebox{\textwidth}{!}{%
+    \begin{tikzpicture}[
+        font=\small,
+        bloc/.style={draw, rounded corners=2mm, align=center, minimum height=13mm, inner sep=3mm, thick},
+        eticheta/.style={font=\scriptsize, align=center, fill=white, inner sep=2pt, outer sep=1pt},
+        nivel/.style={draw=gray!70, dashed, rounded corners=3mm, inner sep=5mm},
+        niveltext/.style={font=\scriptsize\itshape, text=gray, anchor=south west},
+        sageata/.style={-{Stealth[length=2.5mm]}, semithick},
+        dubla/.style={{Stealth[length=2.5mm]}-{Stealth[length=2.5mm]}, semithick},
+    ]
+        % --- Noduri ---
+        \node[bloc, fill=white] (copil)
+            {\textbf{Copilul}\\{\scriptsize vorbește $\cdot$ apasă butoanele $\cdot$ construiește din LEGO}};
+
+        \node[bloc, fill=yellow!45, below=12mm of copil, minimum width=68mm] (hub)
+            {\textbf{Hub LEGO SPIKE Prime} (Pybricks)\\{\scriptsize motoare brațe/roți $\cdot$ matrice LED $5\times5$ $\cdot$ butoane}};
+
+        \node[bloc, fill=teal!30, below=22mm of hub, minimum width=68mm] (lms)
+            {\textbf{LMS-ESP32} (MicroPython)\\{\scriptsize Wi-Fi $\cdot$ client MQTT $\cdot$ audio I2S (difuzor + microfon)}};
+
+        \node[bloc, fill=cyan!20, right=30mm of lms] (cam)
+            {\textbf{ESP32-CAM}\\{\scriptsize server HTTP \texttt{/capture}}};
+
+        \node[bloc, fill=red!20, below=28mm of lms] (broker)
+            {\textbf{Broker MQTT}\\{\scriptsize Mosquitto}};
+        \node[bloc, fill=blue!10, left=18mm of broker] (brain)
+            {\textbf{TriSenseBrain}\\{\scriptsize stări $\cdot$ jocuri $\cdot$ dialog $\cdot$ metrici}};
+        \node[bloc, fill=blue!10, right=18mm of broker] (bridge)
+            {\textbf{Puntea de viziune}\\{\scriptsize \texttt{vision\_esp32cam\_bridge.py}}};
+
+        \node[bloc, fill=violet!15, below=20mm of brain] (tts)
+            {\textbf{Sinteză vocală}\\{\scriptsize Cloud TTS / edge-tts}};
+        \node[bloc, fill=violet!15, below=20mm of broker] (gemini)
+            {\textbf{Google Gemini}\\{\scriptsize dialog $\cdot$ STT $\cdot$ Vision}};
+
+        % --- Contururi de nivel ---
+        \begin{scope}[on background layer]
+            \node[nivel, fit=(hub)] (n1) {};
+            \node[nivel, fit=(lms)] (n2) {};
+            \node[nivel, fit=(brain)(broker)(bridge)] (n3) {};
+            \node[nivel, fit=(tts)(gemini)] (n4) {};
+        \end{scope}
+        \node[niveltext] at (n1.north west) {Nivelul fizic};
+        \node[niveltext] at (n2.north west) {Nivelul de comunicație};
+        \node[niveltext] at (n3.north west) {Nivelul cognitiv — PC};
+        \node[niveltext] at (n4.north west) {Servicii cloud};
+
+        % --- Legături ---
+        \draw[sageata] (copil) -- (hub);
+
+        % Hub <-> ESP32 — vertical, labels beside
+        \draw[sageata] ([xshift=-15mm]hub.south) -- node[eticheta, left=2mm] {\texttt{btn}: butoane}
+            ([xshift=-15mm]lms.north);
+        \draw[sageata] ([xshift=15mm]lms.north) -- node[eticheta, right=2mm] {\texttt{cmd}: acțiuni}
+            ([xshift=15mm]hub.south);
+        \node[eticheta] at ($(hub.south)!0.5!(lms.north)$) {LPF2 / PupRemote};
+
+        % ESP32 <-> Broker — vertical
+        \draw[dubla] (lms) -- node[eticheta, right=2mm] {MQTT} (broker);
+
+        % ESP32 -> Brain — diagonal, label horizontal beside the arrow
+        \draw[dubla] (lms.south west) -- (brain.north);
+        \node[eticheta, anchor=east] at ([xshift=-3mm]$(lms.south west)!0.5!(brain.north)$)
+            {TCP 8765/8766\\audio PCM};
+
+        % Brain <-> Broker <-> Bridge — horizontal
+        \draw[dubla] (brain) -- node[eticheta, above] {MQTT} (broker);
+        \draw[dubla] (broker) -- node[eticheta, above] {MQTT} (bridge);
+
+        % Bridge <-> CAM — label horizontal beside
+        \draw[dubla] (bridge.north) -- (cam.south);
+        \node[eticheta, anchor=west] at ([xshift=3mm]$(bridge.north)!0.5!(cam.south)$)
+            {HTTP\\fotografie JPEG};
+
+        % Brain -> TTS — vertical
+        \draw[sageata] (brain) -- node[eticheta, left=2mm] {text de rostit} (tts);
+
+        % Brain -> Gemini — diagonal, label horizontal
+        \draw[sageata] (brain.south east) -- (gemini.north west);
+        \node[eticheta] at ([yshift=4mm]$(brain.south east)!0.55!(gemini.north west)$)
+            {transcriere $\cdot$ dialog};
+
+        % Bridge -> Gemini — diagonal, label horizontal
+        \draw[sageata] (bridge.south west) -- (gemini.north east);
+        \node[eticheta] at ([yshift=4mm]$(bridge.south west)!0.55!(gemini.north east)$)
+            {imagine + descriere-țintă};
+    \end{tikzpicture}%
+    }
+    \caption{Arhitectura logică a sistemului TriSense: cele trei niveluri de execuție (hub LEGO, LMS-ESP32, PC), modulul ESP32-CAM și serviciile cloud, împreună cu protocoalele de comunicație dintre ele.}
+    \label{fig:arhitectura}
+\end{figure}
+
+\section{Alegerea protocoalelor de comunicație}
+
+O lecție importantă a proiectului a fost că nu există un protocol universal potrivit — fiecare tip de trafic are nevoi diferite, iar sistemul final folosește trei mecanisme în paralel.
+
+\textbf{MQTT pentru control.} Mesajele de comandă sunt scurte, sporadice și trebuie să ajungă la destinatar chiar dacă acesta s-a reconectat între timp. Modelul publish/subscribe cu broker central (Mosquitto) rezolvă elegant ambele probleme: componentele nu trebuie să se cunoască între ele, iar mesajele marcate \emph{retained} sunt livrate și abonaților care se conectează ulterior. Topicurile principale sunt sintetizate în tabelul~\ref{tab:topicuri}.
+
+\begin{table}[htb]
+    \centering
+    \caption{Principalele topicuri MQTT din sistem.}
+    \label{tab:topicuri}
+    \begin{tabular}{|l|l|l|}
+        \hline
+        \textbf{Topic} & \textbf{Direcție} & \textbf{Conținut} \\
+        \hline
+        \texttt{robot/control} & PC $\rightarrow$ ESP32 & comenzi JSON (acțiuni, listen, parametri) \\
+        \texttt{robot/speak} & PC $\rightarrow$ ESP32 & text de rostit \\
+        \texttt{vision/tags} & punte $\rightarrow$ PC & verdictul analizei de imagine \\
+        \texttt{vision/build\_context} & PC $\rightarrow$ punte & descrierea modelului-țintă curent \\
+        \texttt{vision/capture\_req} & ESP32 $\rightarrow$ punte & cerere de captură foto \\
+        \hline
+    \end{tabular}
+\end{table}
+
+\textbf{LPF2/PupRemote pentru legătura hub--ESP32.} Hub-ul nu are rețea, deci singura cale de comunicație este portul său de senzori. Biblioteca PupRemote ne-a permis să definim peste protocolul LPF2 două canale logice: \texttt{cmd} (ESP32 $\rightarrow$ hub, un octet cu codul acțiunii) și \texttt{btn} (hub $\rightarrow$ ESP32, un octet cu codul butonului apăsat). Canalul invers a fost o adăugire proprie, motivată de o nevoie de design: voiam ca interacțiunea copilului cu sistemul să se facă prin butoanele mari și colorate ale hub-ului, nu prin tastatura unui laptop.
+
+\textbf{TCP pentru audio.} Fluxurile audio sunt continue și sensibile la întreruperi, deci nepotrivite pentru MQTT. Două conexiuni TCP directe leagă ESP32 de PC: portul 8765 transportă vocea copilului către PC (PCM de la microfonul INMP441), iar portul 8766 transportă vocea sintetizată a robotului în sens invers (PCM mono, 16 biți, 24~kHz, convertit la stereo pe ESP32 înainte de redarea I2S).
+
+\section{Fluxurile de date}
+
+\subsection{Fluxul de comandă}
+
+Drumul unei comenzi de mișcare este: creierul de pe PC decide acțiunea $\rightarrow$ publică JSON pe \texttt{robot/control} $\rightarrow$ ESP32 mapează acțiunea simbolică pe un cod numeric $\rightarrow$ codul ajunge pe hub prin canalul \texttt{cmd} $\rightarrow$ Pybricks execută rutina corespunzătoare. Codurile acoperă mișcările brațelor (ridicare, coborâre, „high-five”), deplasarea, rutinele de emoții (bucurie, tristețe, \emph{meltdown} — folosit în scenariile demonstrative), exercițiul de respirație (codul 12) și afișarea tiparelor de construcție (codurile 18--20).
+
+\subsection{Fluxul vocal}
+
+Interacțiunea vocală pornește de la copil: apasă butonul stâng al hub-ului. Evenimentul traversează canalul \texttt{btn} către ESP32, care înregistrează 5 secunde de audio de la microfon și le transmite prin TCP către PC. Acolo se întâmplă partea grea: transcrierea cu Gemini, decizia creierului (acțiune motorie, pornire de joc sau răspuns conversațional), sinteza vocală și transmiterea înapoi a fluxului PCM, redat pe difuzorul robotului. Din perspectiva copilului, tot acest lanț este invizibil: apasă butonul, vorbește, iar robotul îi răspunde cu voce și, dacă e cazul, cu o mișcare.
+
+\subsection{Fluxul de viziune}
+
+Fluxul de viziune este construit în jurul jocului „Build the Model”. La pornirea unui nivel, creierul publică descrierea modelului-țintă pe \texttt{vision/build\_context} — astfel puntea de viziune știe \emph{ce anume} să caute în imagine. Când copilul termină construcția, apasă butonul drept al hub-ului; cererea ajunge prin ESP32 pe topicul \texttt{vision/capture\_req}; puntea de pe PC (\texttt{vision\_esp32cam\_bridge.py}) preia fotografia de la ESP32-CAM, o trimite modelului Gemini Vision împreună cu descrierea-țintă și publică verdictul pe \texttt{vision/tags}, de unde îl consumă creierul.
+
+\section{Mașina de stări a robotului}
+
+Comportamentul de ansamblu este guvernat de o mașină de stări (\texttt{RobotState}): starea de repaus, dialogul liber, jocurile (\textsc{Guess\_Emotion}, \textsc{Follow\_Pattern}, \textsc{Build\_Model}) și rutinele de reglare. Starea curentă schimbă felul în care sistemul interpretează intrările — un detaliu care s-a dovedit crucial în practică.
+
+Exemplul cel mai instructiv vine din testarea jocului de construcție. În prima versiune, vorbirea copilului din timpul construcției ajungea în continuare la modelul de limbaj, care — neavând habar de regulile jocului — răspundea cu sugestii proprii („maybe add one more piece on top?”), derutante și contradictorii cu instrucțiunile jocului. Soluția a fost izolarea stării: în \textsc{Build\_Model}, intrarea vocală liberă nu mai ajunge la modelul conversațional; robotul răspunde cu o încurajare scurtă și reamintește copilului că validarea se face prin butonul de fotografiere. Lecția generală: într-un sistem cu o componentă generativă, fluxul de control al jocurilor trebuie protejat explicit de creativitatea modelului.
+
+\section{Mecanisme de robustețe}
+
+Un sistem care interacționează cu copii nu are voie să se comporte imprevizibil, așa că am tratat robustețea ca cerință de prim rang, nu ca finisaj:
+
+\begin{itemize}
+    \item \textbf{reconectare automată}: ESP32 își reface singur conexiunea Wi-Fi și sesiunea MQTT după orice întrerupere; bucla LPF2 rămâne activă în timpul operațiilor de rețea, altfel hub-ul ar considera „senzorul” deconectat — întregul set de măsuri anti-deconectare este detaliat în secțiunea~\ref{sec:lpf2-stabilitate};
+    \item \textbf{fallback TTS}: dacă serviciul cloud de sinteză vocală nu răspunde, sistemul comută transparent pe motorul local \texttt{edge-tts} — robotul nu rămâne niciodată mut;
+    \item \textbf{temporizatoare watchdog}: fiecare fază de joc are o limită de timp; în „Build the Model”, dacă copilul nu trimite nicio fotografie în 90 de secunde, robotul reia blând instrucțiunile în loc să aștepte la nesfârșit;
+    \item \textbf{buffering audio}: redarea vocii folosește un pre-buffer TCP de 32~KB și un buffer DMA I2S de aceeași dimensiune — valori găsite experimental, după cum detaliez în capitolul următor.
+\end{itemize}

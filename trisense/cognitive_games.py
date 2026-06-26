@@ -17,12 +17,16 @@ CATEGORY_WORDS: dict[str, set[str]] = {
     "animals": {
         "dog", "cat", "bird", "fish", "horse", "cow", "pig", "duck", "lion", "bear",
         "rabbit", "mouse", "frog", "sheep", "chicken", "elephant", "tiger", "monkey",
+        "caine", "pisica", "pasare", "peste", "cal", "vaca", "porc", "rata", "leu",
+        "urs", "iepure", "soarece", "broasca", "oaie", "gaina", "elefant", "tigru", "maimuta",
     },
     "colors": {
         "red", "blue", "green", "yellow", "orange", "purple", "pink", "black", "white", "brown",
+        "rosu", "albastru", "verde", "galben", "portocaliu", "mov", "roz", "negru", "alb", "maro",
     },
     "fruits": {
         "apple", "banana", "orange", "grape", "pear", "peach", "melon", "berry", "mango", "lemon",
+        "mar", "banana", "portocala", "strugure", "para", "piersica", "pepene", "capsuna", "mango", "lamaie",
     },
 }
 
@@ -48,9 +52,9 @@ STORY_SETS: list[list[str]] = [
 
 # Poveste co-construita — deschideri fallback (fara Gemini)
 CO_STORY_OPENINGS: list[str] = [
-    "Once upon a time, a little fox found a glowing key. What do you think the key opens, {name}?",
-    "On a rainy day, a brave turtle built a tiny boat. Where should the turtle sail, {name}?",
-    "In a quiet forest, a robot friend heard a soft song. Who is singing the song, {name}?",
+    "A fost odată ca niciodată, un pui de vulpe a găsit o cheie strălucitoare. Ce crezi că deschide cheia, {name}?",
+    "Într-o zi ploioasă, o broască țestoasă curajoasă a făcut o barcă mică. Unde ar trebui să navigheze, {name}?",
+    "Într-o pădure liniștită, un prieten robot a auzit un cântec blând. Cine cântă, {name}?",
 ]
 
 _EMOTION_VOCAB: set[str] = {
@@ -123,6 +127,18 @@ def nback_should_yes(seq: list[str], index: int, level: int) -> bool:
     if index < level:
         return False
     return seq[index] == seq[index - level]
+
+
+def parse_seconds_estimate(transcript: str) -> Optional[float]:
+    """Extrage o estimare de secunde din raspunsul copilului."""
+    t = (transcript or "").lower()
+    m = re.search(r"(\d+(?:[.,]\d+)?)", t)
+    if not m:
+        return None
+    try:
+        return float(m.group(1).replace(",", "."))
+    except ValueError:
+        return None
 
 
 def parse_yes_no(transcript: str) -> Optional[bool]:

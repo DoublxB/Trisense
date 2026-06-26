@@ -1,0 +1,319 @@
+\chapter{Implementare}
+\label{cap:implementare}
+
+Acest capitol coboară de la arhitectură la cod. Proiectul însumează câteva mii de linii de Python distribuite pe trei medii de execuție diferite — Pybricks pe hub, MicroPython pe ESP32 și CPython pe PC — fiecare cu propriile limitări și particularități. Prezint componentele în ordinea în care circulă informația: de la corp către creier și înapoi.
+
+\section{Construcția fizică a robotului}
+
+Robotul (figura~\ref{fig:robot-overview}) este construit din piese LEGO SPIKE Prime: un corp compact cu două brațe acționate de motoare medii (porturile B și E), două roți motrice (porturile C și D) și hub-ul montat frontal, cu matricea de LED-uri vizibilă — aceasta joacă rolul de „față” a robotului și de ecran pentru tiparele de joc. Placa LMS-ESP32 este conectată la portul A printr-un cablu LPF2, primind de acolo și alimentarea. Pe o pereche de mini-breadboard-uri sunt montate amplificatorul audio MAX98357A cu difuzorul de 4~$\Omega$ și microfonul digital INMP441, cablate pe magistrala I2S a plăcii (semnalele de ceas partajate pe GPIO~14 și 15, datele de redare pe GPIO~26, datele de la microfon pe GPIO~33, activarea amplificatorului pe GPIO~32). Modulul ESP32-CAM este alimentat din placa LMS-ESP32, dar funcționează ca dispozitiv de rețea independent. Cablajul complet este redat în figura~\ref{fig:cablaj}, iar detaliile de montaj ale modulelor electronice pe robot sunt prezentate în figura~\ref{fig:hardware-detalii}.
+
+\begin{figure}[htb]
+    \centering
+    \begin{minipage}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\linewidth, height=0.34\textheight, keepaspectratio]{robot-trisense-perspectiva.png}
+    \end{minipage}
+    \hfill
+    \begin{minipage}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\linewidth, height=0.34\textheight, keepaspectratio]{robot-trisense-lateral.png}
+    \end{minipage}
+    \caption[Robotul TriSense — vedere de ansamblu]{%
+        Robotul TriSense în configurația fizică finală: vedere frontal-oblică (stânga) și laterală (dreapta).%
+        \par\smallskip
+        {\small Fotografiile evidențiază corpul LEGO, hub-ul montat frontal, roțile laterale, brațele mobile și modulele audio/video integrate pe robot.}%
+    }
+    \label{fig:robot-overview}
+\end{figure}
+
+\begin{figure}[htb]
+    \centering
+    \begin{minipage}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{robot-meltdown-frontal.png}
+    \end{minipage}
+    \hfill
+    \begin{minipage}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=0.92\textwidth]{robot-meltdown-lateral.png}
+    \end{minipage}
+    \caption[Robot TriSense — rutina meltdown]{%
+        Robotul TriSense în rutina de \emph{meltdown}: vedere frontală (stânga) și laterală (dreapta).%
+        \par\smallskip
+        {\small Se observă matricea de LED-uri („fața” robotului), difuzorul și camera montate frontal, brațele acționate de motoare și postura asimetrică — interpretare stilizată a stării de criză (secțiunea~\ref{sec:meltdown}).}%
+    }
+    \label{fig:robot}
+\end{figure}
+
+\begin{figure}[htb]
+    \centering
+    \includegraphics[width=\textwidth]{cablaj-trisense.png}
+    \caption[Schema de cablaj TriSense]{%
+        Schema de cablaj a sistemului TriSense.%
+        \par\smallskip
+        {\small
+        \textbf{a)}\ Hub SPIKE Prime $\rightarrow$ LMS-ESP32 (portul~A, LPF2): alimentare și legătură serială.\par
+        \textbf{b)}\ Magistrală I2S: amplificator MAX98357A (difuzor) și microfon INMP441 (montat pe robot).\par
+        \textbf{c)}\ Modul ESP32-CAM: alimentare de la LMS-ESP32; comunicație Wi-Fi independentă.%
+        }%
+    }
+    \label{fig:cablaj}
+\end{figure}
+
+\begin{figure}[htb]
+    \centering
+    \begin{minipage}[b]{0.31\textwidth}
+        \centering
+        \includegraphics[width=\linewidth, height=0.3\textheight, keepaspectratio]{esp32cam-fata.png}\\[2pt]
+        {\small (a)}
+    \end{minipage}
+    \hfill
+    \begin{minipage}[b]{0.31\textwidth}
+        \centering
+        \includegraphics[width=\linewidth, height=0.3\textheight, keepaspectratio]{amplificator-max98357a.png}\\[2pt]
+        {\small (b)}
+    \end{minipage}
+    \hfill
+    \begin{minipage}[b]{0.31\textwidth}
+        \centering
+        \includegraphics[width=\linewidth, height=0.3\textheight, keepaspectratio]{lms32-cablaj-spate.png}\\[2pt]
+        {\small (c)}
+    \end{minipage}
+    \caption[Detalii de montaj ale modulelor electronice]{%
+        Detalii de montaj ale modulelor electronice pe robot.%
+        \par\smallskip
+        {\small
+        \textbf{(a)}\ Modulul ESP32-CAM montat frontal, cu camera OV2640 între elementele LEGO care sugerează ochii.\par
+        \textbf{(b)}\ Amplificatorul MAX98357A și cablajul I2S pe mini-breadboard.\par
+        \textbf{(c)}\ Placa LMS-ESP32 și cablajul, pe partea din spate a robotului.%
+        }%
+    }
+    \label{fig:hardware-detalii}
+\end{figure}
+
+\section{Firmware-ul hub-ului (Pybricks)}
+
+Programul \texttt{main.py} rulează pe hub sub Pybricks și are o structură simplă în mod deliberat: o buclă infinită care procesează mesajele LPF2 și citește butoanele. Toată „personalitatea” motorie a robotului — felul în care ridică brațele când se bucură, tremurul brațelor din rutina de \emph{meltdown}, ritmul lent al exercițiului de respirație — este codificată aici, în rutine apelate prin coduri numerice:
+
+\begin{lstlisting}[language=Python, caption={Dispecerizarea comenzilor pe hub (fragment simplificat).}, label={lst:runcmd}]
+def run_cmd(code):
+    if code == 1:
+        raise_right_arm()        # ex. reactia la cuvinte-cheie
+    elif code == 12:
+        breathing_show()         # exercitiul de respiratie
+    elif code in (18, 19, 20):
+        # tiparele jocului "Build the Model":
+        # 18 = turn, 19 = piramida, 20 = "robot"
+        draw_build_pattern(code - 17, keep_display=True)
+\end{lstlisting}
+
+Rutina de \emph{meltdown}, surprinsă în figura~\ref{fig:robot}, merită o mențiune separată, pentru că rolul ei depășește simpla demonstrație tehnică. Ea pune în scenă, în formă stilizată și deliberat inofensivă, starea de criză discutată în secțiunea~\ref{sec:meltdown}: brațele se agită sacadat, asimetric, iar matricea de LED-uri afișează o expresie tulburată — un contrast vizibil cu mișcările ample și simetrice ale rutinei de bucurie. La final, robotul se „liniștește” treptat și poate înlănțui rutina de respirație, modelând pentru copil exact strategia de autoreglare pe care sistemul i-o propune și lui. Intensitatea interpretării a fost ținută intenționat în registru blând: scopul este ca starea să fie recognoscibilă și denumibilă, nu să sperie sau să suprastimuleze.
+
+Două detalii de implementare merită menționate. Primul: tiparele de construcție desenate pe matricea $5\times5$ trebuie să \emph{rămână} afișate cât timp copilul construiește — de aici parametrul \texttt{keep\_display}, care suprimă revenirea automată la animația de repaus. Al doilea: citirea butoanelor folosește \emph{debounce} software (un buton apăsat o singură dată nu trebuie să genereze o rafală de evenimente) și transmite codul către ESP32 prin canalul \texttt{btn}:
+
+\begin{lstlisting}[language=Python, caption={Raportarea butoanelor către ESP32 (fragment).}, label={lst:btn}]
+pressed = hub.buttons.pressed()
+if Button.LEFT in pressed and not left_was_pressed:
+    pr.call("btn", 1)    # stanga: copilul vrea sa vorbeasca
+if Button.RIGHT in pressed and not right_was_pressed:
+    pr.call("btn", 2)    # dreapta: fotografiaza constructia
+\end{lstlisting}
+
+\section{Firmware-ul ESP32 (MicroPython)}
+
+Programul \texttt{main\_robot.py} este componenta cu cele mai multe responsabilități simultane: client MQTT, punte LPF2, player audio și recorder de microfon — totul pe un microcontroler fără sistem de operare și fără fire de execuție veritabile. Bucla principală este de aceea construită integral non-blocant: clientul MQTT folosește \texttt{check\_msg()} în loc de așteptare blocantă, iar procesarea LPF2 (\texttt{pr.process()}) este apelată la fiecare iterație, pentru că hub-ul declară „senzorul” deconectat dacă nu primește răspuns la timp.
+
+Evenimentele de buton sosite de la hub setează simple fanioane, consumate apoi în bucla principală: butonul stâng pornește o înregistrare de 5 secunde de la microfon, transmisă prin TCP către PC; butonul drept publică cererea de captură foto pe MQTT. Această inversare — copilul controlează sistemul de pe robot, nu de pe laptop — a schimbat vizibil dinamica sesiunilor de test: toată atenția rămâne la robot.
+
+\subsection{Problema redării sacadate și soluția de buffering}
+
+Cea mai instructivă problemă de implementare a fost una de natură audio. La primele teste, vocea robotului se auzea sacadat — fragmente de vorbire întrerupte de pauze scurte — deși pe PC fluxul era generat corect. Diagnosticul: debitul rețelei Wi-Fi nu este constant; de câte ori soseau pachete cu întârziere, buffer-ul DMA al interfeței I2S se golea, iar redarea se întrerupea până la sosirea datelor următoare.
+
+Soluția a avut două componente. Întâi, redarea nu mai începe imediat: ESP32 acumulează un pre-buffer de 32~KB (aproximativ două treimi de secundă de audio) înainte de prima scriere către difuzor, absorbind astfel variațiile inițiale de debit. Apoi, buffer-ul DMA intern al perifericului I2S a fost mărit la aceeași dimensiune, ca rezervă pentru variațiile din timpul redării. Valorile au fost găsite empiric — 8~KB se dovedise insuficient, iar valori mult mai mari ar fi crescut inutil latența de pornire și consumul de RAM, resursă critică pe ESP32. După această modificare, întreruperile au dispărut complet în toate sesiunile ulterioare.
+
+\subsection{Stabilitatea legăturii LPF2: prevenirea căderii handshake-ului}
+\label{sec:lpf2-stabilitate}
+
+Cea mai persistentă categorie de probleme din dezvoltare nu a fost audio, ci stabilitatea legăturii LPF2 dintre ESP32 și hub. Protocolul LPF2 este conceput pentru senzori LEGO: hub-ul interoghează periodic „senzorul” și, dacă acesta nu răspunde la timp, îl declară deconectat și reia handshake-ul de la zero — în practică, robotul „îngheța” în mijlocul unei activități. Măsurătorile noastre au arătat că hub-ul tolerează aproximativ 40~ms între două apeluri consecutive de procesare LPF2 (\texttt{pr.process()}); orice operație care blochează firul principal mai mult de atât rupe legătura. Cum exact operațiile audio și de rețea sunt blocante prin natura lor, a fost nevoie de un set întreg de ajustări:
+
+\begin{itemize}
+    \item \textbf{dimensionarea felii\-lor audio sub pragul de toleranță}: redarea TTS scrie pe I2S în felii de 2.048 octeți — la 24~kHz mono, exact $\approx$43~ms de audio — cu \texttt{pr.process()} apelat între felii; pentru clipurile rulate imediat după transferuri lungi (de exemplu ghidajul exercițiului de respirație), feliile coboară la 256 de octeți, cu procesare LPF2 mult mai deasă;
+    \item \textbf{I2S în mod non-blocant}: scrierea și citirea I2S folosesc rutine dedicate care cedează controlul între felii, astfel încât firul principal să poată întreține legătura chiar și în timpul operațiilor audio lungi;
+    \item \textbf{recepție TCP fragmentată}: primirea datelor de la PC se face în bucăți mici, cu apeluri de procesare LPF2 intercalate — un \texttt{recv()} blocant pe un transfer de sute de kiloocteți ar fi „omorât” legătura cu certitudine;
+    \item \textbf{ticker LPF2 pe al doilea nucleu}: ca plasă de siguranță suplimentară, în timpul operațiilor audio de durată pornește pe al doilea nucleu al ESP32 un fir dedicat care apelează \texttt{pr.process()} la fiecare $\approx$15~ms, independent de ce face firul principal;
+    \item \textbf{ferestre de stabilizare după I2S}: după oprirea unui transfer audio (mai ales după înregistrări de peste 5 secunde, când microfonul și difuzorul împart aceleași linii de ceas I2S), legătura LPF2 are nevoie de circa 2 secunde de „liniște”; firmware-ul execută în acest interval serii scurte de procesări LPF2 pentru ca legătura să se reașeze înainte de următoarea operație audio;
+    \item \textbf{protecția memoriei}: în timpul secvențelor demonstrative nu se acceptă fluxuri audio TCP mari ($\sim$336~KB) — epuizarea memoriei (\texttt{ENOMEM}) pe ESP32 ducea în lanț la blocarea procesării LPF2 și la căderea hub-ului;
+    \item \textbf{ordinea canalelor PupRemote}: la adăugarea canalului \texttt{btn} am constatat că definițiile canalelor trebuie să fie \emph{identice și în aceeași ordine} pe ambele capete (hub și ESP32); orice nepotrivire face hub-ul să raporteze \texttt{ENODEV} și să intre într-o buclă de reconectare;
+    \item \textbf{MQTT non-blocant}: clientul MQTT folosește \texttt{check\_msg()} (verificare fără așteptare) în locul recepției blocante, iar cererile HTTP lungi sunt evitate pe ESP32 tocmai pentru că ar îngheța bucla principală.
+\end{itemize}
+
+După aplicarea acestor măsuri, deconectările LPF2 — inițial frecvente la fiecare sesiune cu voce — au dispărut din utilizarea curentă, inclusiv în scenariul cel mai solicitant: înregistrare de 5 secunde de la microfon, urmată imediat de redarea răspunsului sintetizat, cu mișcări comandate pe hub între ele.
+
+\section{Aplicația „creier” de pe PC}
+
+Pachetul \texttt{trisense} concentrează logica de nivel înalt. Punctul de intrare pentru modul vocal este \texttt{run\_voice\_dialog.py}, care pornește serverul TCP de voce și instanțiază clasa centrală \texttt{TriSenseBrain}.
+
+\subsection{Orchestrarea dialogului}
+
+La sosirea unei transcrieri, creierul parcurge o cascadă de decizii. Întâi verifică starea curentă — dacă un joc este în desfășurare, intrarea se interpretează în contextul jocului. Apoi caută în text intenții explicite de acțiune sau de joc (de exemplu, formulări care conțin „build” sau „hanoi” pornesc jocul de construcție). Abia dacă niciun tipar nu se potrivește, textul ajunge la modelul conversațional Gemini, al cărui \emph{system prompt} fixează persona robotului: prietenos, răbdător, propoziții scurte, întotdeauna încurajator. Răspunsul este sintetizat vocal și transmis robotului; dacă include o acțiune motorie, comanda corespunzătoare pleacă în paralel pe MQTT.
+
+\subsection{Sinteza vocală cu fallback}
+
+Modulul \texttt{tts\_engine.py} gestionează două motoare de sinteză: Google Cloud TTS (vocea \texttt{en-US-Neural2-F}) și \texttt{edge-tts} (vocea \texttt{en-US-JennyNeural}), ambele aduse la același format de ieșire — PCM mono, 16 biți, 24~kHz — astfel încât restul lanțului audio să nu depindă de motorul folosit. Comutarea este automată: orice eroare a motorului principal declanșează sinteza cu cel secundar. Un detaliu amuzant de implementare: pachetul \texttt{edge-tts} importă modulul standard \texttt{secrets}, care în proiectul nostru era „umbrit” de fișierul local \texttt{secrets.py} (configurația ESP32); rezolvarea a cerut manipularea explicită a căii de import — genul de problemă care nu apare în nicio documentație, dar consumă o seară de depanare.
+
+\section{Jocurile terapeutice}
+
+Fiecare joc din TriSense pornește de la un construct psihologic documentat în literatură și se sprijină pe câte o combinație diferită de capabilități ale sistemului. Pentru fiecare activitate descriu mai jos două lucruri: ce câștigă copilul din ea (beneficiul terapeutic) și cum circulă efectiv informația prin sistem ca să o facă posibilă (fluxul tehnic).
+
+\subsection{Ghicește emoția (Guess the Emotion)}
+
+Robotul interpretează cu tot corpul o emoție — brațele ridicate și mișcări vioaie pentru bucurie, brațe coborâte lent și „privire” plecată pentru tristețe — iar copilul o denumește verbal (figura~\ref{fig:guess-emotion}). Răspunsul este transcris și comparat cu emoția-țintă, iar feedback-ul este întotdeauna pozitiv: la răspuns greșit robotul nu spune „nu”, ci rejoacă emoția cu un indiciu verbal suplimentar.
+
+\subsubsection*{Fluxul tehnic}
+Creierul alege emoția-țintă și trece mașina de stări în modul de joc, apoi publică acțiunea pe \texttt{robot/control}; ESP32 o traduce în codul numeric corespunzător și hub-ul redă rutina motorie împreună cu expresia de pe matrice. Răspunsul copilului intră pe lanțul vocal obișnuit: apăsarea butonului stâng pornește înregistrarea de 5 secunde de la microfon, audio-ul ajunge pe PC prin TCP, Gemini îl transcrie, iar creierul compară transcrierea cu emoția-țintă (acceptând sinonime — „happy”, „joyful”, „glad”). Verdictul se întoarce ca voce sintetizată, redată pe difuzorul robotului, iar rezultatul rundei se consemnează în jurnalul de metrici.
+
+\subsubsection*{Beneficiul terapeutic}
+Jocul exersează recunoașterea și etichetarea emoțiilor — vocabularul afectiv fiind o dificultate frecventă în TSA, iar recunoașterea emoțiilor un obiectiv standard al intervențiilor. Față de exercițiile clasice cu cartonașe, robotul aduce un avantaj concret: emoția este jucată \emph{dinamic}, cu corp, mișcare și expresie, dar într-o formă simplificată și perfect repetabilă — același „fericit” arată identic de fiecare dată, ceea ce dă copilului șansa de a învăța tiparul fără zgomotul de variație al expresiilor umane reale. Repertoriul include și starea de criză discutată în secțiunea~\ref{sec:meltdown}, pe care copilul ajunge astfel să o observe și să o denumească din exterior, în siguranță.
+
+\begin{figure}[htb]
+    \centering
+    \includegraphics[width=0.7\textwidth]{guess-emotion.jpg}
+    \caption[Guess the Emotion — meltdown]{%
+        Cadru din jocul „Guess the Emotion”: robotul interpretează starea de criză (\emph{meltdown}).%
+        \par\smallskip
+        {\small Brațele agitate, ridicate asimetric, și expresia tulburată pe matricea de LED-uri — în așteptarea răspunsului verbal al copilului.}%
+    }
+    \label{fig:guess-emotion}
+\end{figure}
+
+\subsection{Urmează tiparul (Follow the Pattern)}
+
+Robotul execută o secvență scurtă de mișcări pe care copilul trebuie să o reproducă, secvențele lungindu-se progresiv.
+
+\subsubsection*{Fluxul tehnic}
+Secvența este generată pe PC ca listă de acțiuni motorii, apoi transmisă pas cu pas: pentru fiecare element, creierul publică acțiunea pe MQTT, ESP32 o mapează pe codul de hub, iar rutina se execută cu o pauză scurtă înaintea pasului următor, ca mișcările să rămână distincte și ușor de urmărit. După redarea întregii secvențe, robotul anunță vocal „now you!”, iar evaluarea reproducerii o face terapeutul prezent — o alegere deliberată: detecția automată a mișcărilor copilului ar fi cerut un sistem de urmărire video care complica mult arhitectura, fără un câștig terapeutic pe măsură.
+
+\subsubsection*{Beneficiul terapeutic}
+Jocul vizează două constructe în același timp. Primul este memoria de lucru secvențială: copilul trebuie să rețină ordinea mișcărilor și să o redea după o întârziere, iar lungirea progresivă a secvențelor gradează dificultatea exact în maniera recomandată de Diamond pentru antrenarea funcțiilor executive \cite{diamond2013}. Al doilea este imitația motorie — documentată ca deficitară în TSA și, în același timp, ca fiind unul dintre comportamentele pe care copiii din spectru le manifestă spontan față de roboți \cite{scassellati2012}. Cu alte cuvinte, jocul exersează o abilitate dificilă exact pe canalul pe care ea apare cel mai natural.
+
+\subsection{Construiește modelul (Build the Model)}
+
+Cel mai complex joc al sistemului, inspirat din proba Turnului din Hanoi, leagă toate componentele: hub, voce, butoane, cameră și viziune artificială. Are trei niveluri cu dificultate crescătoare, fiecare definit printr-un tipar pe matricea de LED-uri și o descriere pentru modelul de viziune (figura~\ref{fig:build-model}):
+
+\begin{enumerate}
+    \item \textbf{turnul} — patru cuburi portocalii $2\times4$ suprapuse;
+    \item \textbf{piramida} — bază din două cuburi albastre $2\times4$, un cub $2\times4$ peste ele și un cub $2\times2$ în vârf;
+    \item \textbf{„robotul”} — cinci piese negre într-o siluetă de cruce: bază dublă, coloană centrală, „umeri” din piesa $2\times6$ și „cap” din cubul $2\times2$.
+\end{enumerate}
+
+\begin{figure}[htb]
+    \centering
+    \begin{minipage}[b]{0.31\textwidth}
+        \centering
+        \includegraphics[width=\linewidth, height=0.3\textheight, keepaspectratio]{build-model-nivel1.png}\\[2pt]
+        {\small (a) nivelul 1 — turnul}
+    \end{minipage}
+    \hfill
+    \begin{minipage}[b]{0.31\textwidth}
+        \centering
+        \includegraphics[width=\linewidth, height=0.3\textheight, keepaspectratio]{build-model-nivel2.png}\\[2pt]
+        {\small (b) nivelul 2 — piramida}
+    \end{minipage}
+    \hfill
+    \begin{minipage}[b]{0.31\textwidth}
+        \centering
+        \includegraphics[width=\linewidth, height=0.3\textheight, keepaspectratio]{build-model-nivel3.png}\\[2pt]
+        {\small (c) nivelul 3 — „robotul”}
+    \end{minipage}
+    \caption[Cele trei niveluri ale jocului „Build the Model”]{%
+        Cele trei niveluri ale jocului „Build the Model”, cu dificultate crescătoare.%
+        \par\smallskip
+        {\small În fiecare imagine apar modelul-țintă și reproducerea sa în piese LEGO: \textbf{(a)} turnul din patru cuburi suprapuse, \textbf{(b)} piramida în trei trepte și \textbf{(c)} silueta de cruce a „robotului”.}%
+    }
+    \label{fig:build-model}
+\end{figure}
+
+\subsubsection*{Fluxul tehnic}
+La pornirea unui nivel, creierul face două lucruri în paralel: trimite hub-ului (prin MQTT și apoi LPF2) comanda de afișare a tiparului pe matrice — codurile 18--20, cu \texttt{keep\_display} activ, ca tiparul să rămână pe ecran cât durează construcția — și publică descrierea-țintă a modelului pe topicul de context al punții de viziune. Robotul explică verbal sarcina, apoi sistemul așteaptă: copilul construiește în ritmul lui, fără nicio limită apăsătoare de timp. Când a terminat, apasă butonul drept al hub-ului; apăsarea călătorește pe drumul invers (hub $\rightarrow$ canal LPF2 \texttt{btn} $\rightarrow$ ESP32 $\rightarrow$ MQTT) și declanșează cererea de captură. Puntea de viziune preia fotografia de la ESP32-CAM, o trimite modelului Gemini Vision împreună cu descrierea-țintă și publică verdictul structurat — potrivire, scor de încredere, descrierea scenei — pe care creierul îl transformă în feedback vocal: felicitare și trecere la nivelul următor, sau încurajare și o descriere blândă a ceea ce mai lipsește. Un \emph{watchdog} de 90 de secunde reia instrucțiunile dacă nu sosește nicio fotografie, iar pe durata jocului intrările vocale generale sunt ignorate, ca modelul conversațional să nu interfereze cu logica nivelurilor.
+
+\subsubsection*{Beneficiul terapeutic}
+Inspirația jocului vine din \emph{Turnul din Hanoi}, una dintre cele mai folosite probe de planificare din neuropsihologie: rezolvarea ei cere descompunerea unui obiectiv final în pași intermediari, păstrarea planului în memoria de lucru și ajustarea lui din mers. „Build the Model” transpune aceeași solicitare cognitivă în material LEGO: copilul trebuie să citească tiparul abstract de pe matricea de LED-uri, să îl traducă într-o construcție tridimensională și să-și ordoneze singur pașii de asamblare — planificare vizuo-spațială, memorie de lucru și secvențiere, în formă de joc. Pe lângă componenta executivă, jocul exersează și ceea ce LeGoff numea miezul terapiei LEGO \cite{legoff2004}: persistența la sarcină și toleranța la frustrare, pentru că o construcție respinsă de verificarea vizuală nu se „pierde”, ci se corectează și se reîncearcă, cu robotul descriind blând ce mai lipsește. Faptul că validarea vine de la un robot, nu de la un adult, scoate din ecuație presiunea evaluării sociale — copilul nu „greșește în fața cuiva”, ci pur și simplu mai are de adăugat o piesă.
+
+Partea cu adevărat dificilă s-a dovedit a fi calibrarea verificării vizuale, pe care o detaliez în secțiunea~\ref{sec:viziune}.
+
+\subsection{Exercițiul de respirație (Breathing Buddy)}
+
+La detectarea semnelor de agitație în vorbirea copilului sau la cerere explicită, robotul propune un exercițiu de respirație: brațele se ridică lent pe inspirație și coboară pe expirație, sincronizate cu ghidaj vocal calm, în cicluri cu cronometraj fix.
+
+\subsubsection*{Fluxul tehnic}
+Declanșarea pornește din creier — fie la cerere explicită („let's breathe”), fie când detectorul de cuvinte-cheie sesizează semne de agitație în transcrieri. Creierul trimite comanda 12 către hub, care intră în rutina \texttt{breathing\_show}: brațele urcă lent, țin pauza, coboară, în cicluri cu durate fixe. În paralel, PC-ul sintetizează și transmite ghidajul vocal („breathe in... hold... breathe out”), calibrat ca durată pe cronometrajul mișcărilor, astfel încât vocea și brațele să rămână sincronizate fără nicio comunicare suplimentară între ele — sincronizarea este \emph{prin construcție}, nu prin mesaje. Acesta este și scenariul care a cerut feliile audio mici descrise în secțiunea~\ref{sec:lpf2-stabilitate}: ghidajul vocal rulează simultan cu mișcările hub-ului, deci legătura LPF2 trebuie întreținută chiar în timpul redării.
+
+\subsubsection*{Beneficiul terapeutic}
+Procedeul vine direct din practicile de reglare emoțională folosite în terapia ocupațională — pauzele senzoriale prevenind acumularea de suprasolicitare care poate escalada în \emph{meltdown} (secțiunea~\ref{sec:meltdown}), escaladare cu atât mai probabilă cu cât strategiile proprii de reglare ale copilului sunt mai fragile \cite{mazefsky2013}. Mișcarea fizică a brațelor oferă copilului un reper vizual de sincronizare, mai eficient decât simplele indicații verbale — copilul nu trebuie să-și imagineze ritmul respirației, îl vede. Pe termen lung, miza este ca această strategie, exersată întâi împreună cu robotul, să devină un instrument pe care copilul îl poate folosi singur.
+
+\subsection{Stop \& Go}
+
+Adaptarea ludică a paradigmei Go/No-Go, una dintre cele mai folosite probe de control inhibitor din cercetarea ADHD. Regula se anunță vocal la început: „când vezi 1 — dansezi; când vezi 0 — îngheți!”. Matricea hub-ului afișează cifra, lumina centrală dă un indiciu suplimentar de culoare (verde pentru „go”, roșu pentru „stop”), iar alternanța este aleatoare, în ritm lent, potrivit vârstei.
+
+\subsubsection*{Fluxul tehnic}
+Soluția ocolește elegant o limitare hardware: matricea $5\times5$ nu afișează culori, doar cifre și tipare în tonuri de luminozitate, așa că „semaforul” se construiește din două surse — cifra pe matrice plus lumina centrală a hub-ului, singura sursă de culoare reală de pe el. Creierul generează secvența de probe cu pauze aleatoare (ca semnalul să nu devină predictibil), trimite fiecare probă pe lanțul MQTT--LPF2 obișnuit, iar robotul anunță vocal regula la început. Reacția copilului — dansează sau îngheață — o evaluează terapeutul, iar tipul fiecărei probe și momentul ei intră în jurnalul de metrici, ca rata erorilor să poată fi urmărită între sesiuni.
+
+\subsubsection*{Beneficiul terapeutic}
+Controlul inhibitor — capacitatea de a-ți opri un răspuns deja pregătit — este exact funcția executivă cel mai des afectată în ADHD \cite{diamond2013}. Jocul o exersează în forma cea mai directă cu putință, iar erorile de tip „dans pe 0” sunt numărabile, deci progresul copilului de la o sesiune la alta se poate urmări obiectiv, nu doar din impresii.
+
+\subsection{Categorii rapide}
+
+Robotul anunță o categorie — animale, culori, fructe — iar copilul spune cât mai multe exemple în 20--30 de secunde.
+
+\subsubsection*{Fluxul tehnic}
+Jocul stă aproape în întregime pe lanțul vocal. Creierul alege categoria, robotul o anunță și pornește fereastra de timp; răspunsurile copilului ajung pe PC prin TCP și sunt transcrise cu Gemini. Validarea o face tot modelul de limbaj, printr-un prompt dedicat: primește lista transcrisă și categoria și întoarce câte răspunsuri aparțin într-adevăr categoriei, câte sunt repetări și câte sunt în afara subiectului — o sarcină la care un dicționar fix ar eșua imediat (copiii vin cu „t-rex” la animale, iar răspunsul corect trebuie acceptat). Numărul de răspunsuri valide, repetările și fereastra de timp se înregistrează per rundă.
+
+\subsubsection*{Beneficiul terapeutic}
+Procedeul vine din probele de fluență semantică: solicită accesul lexical rapid și flexibilitatea verbală. Pentru copiii care vorbesc puțin sau greu inițiază comunicarea, formatul de joc contra cronometru transformă „vorbitul” dintr-o cerință socială apăsătoare într-o provocare amuzantă, iar numărul de răspunsuri valide pe sesiune este un indicator simplu și onest al progresului verbal în timp.
+
+\subsection{Estimarea timpului}
+
+„Când crezi că au trecut 10 secunde, spune stop.” Robotul cronometrează și compară estimarea copilului cu timpul real, pe ținte de 5, 10 și 20 de secunde, apoi îi spune cât de aproape a fost — întotdeauna ca pe un scor de joc, nu ca pe o notă.
+
+\subsubsection*{Fluxul tehnic}
+Este, tehnic vorbind, cel mai simplu joc din repertoriu — și tocmai de aceea un bun test al lanțului vocal cap-coadă. Creierul anunță ținta și pornește un cronometru local la finalul anunțului vocal; momentul „stop” al copilului vine prin aceeași cale buton--microfon--TCP--transcriere, iar diferența dintre timpul măsurat și țintă devine scorul rundei. Singura subtilitate de implementare este corecția de latență: între „stop”-ul rostit și sosirea transcrierii trec câteva secunde (înregistrarea ferestrei plus transcrierea), așa că reperul de timp se ia la începutul înregistrării, nu la sosirea textului. Ținta, estimarea și eroarea absolută se consemnează per rundă.
+
+\subsubsection*{Beneficiul terapeutic}
+Percepția timpului este o piesă discretă, dar importantă, a funcțiilor executive: copiii impulsivi subestimează sistematic duratele, ceea ce se vede apoi în dificultăți de planificare și în tranziții abrupte între activități. Exersarea „ceasului intern” într-un cadru ludic lucrează direct pe această verigă — iar eroarea absolută de estimare, înregistrată per sesiune, arată negru pe alb dacă ritmul intern al copilului se calibrează.
+
+\subsection{Povestea co-construită}
+
+Robotul începe o poveste cu două-trei propoziții, apoi i-o predă copilului: „și apoi ce s-a întâmplat?”. Copilul continuă cu o idee, robotul preia firul și îl duce mai departe coerent — modelul de limbaj se pricepe surprinzător de bine să integreze orice întorsătură propune copilul — și tot așa, cu rândul, până la un final pe care îl construiesc împreună.
+
+\subsubsection*{Fluxul tehnic}
+Aici modelul conversațional nu mai este ținut la distanță, ca în jocurile cu reguli stricte, ci devine motorul activității. La intrarea în joc, creierul comută pe un \emph{system prompt} dedicat de povestitor: continuă firul propus de copil (oricât de neașteptat), păstrează propozițiile scurte, conținutul senin și potrivit vârstei, și predă rândul înapoi după două-trei propoziții, încheind mereu cu o întrebare deschisă. Istoricul poveștii se acumulează în contextul conversației, deci coerența între tururi vine gratuit din funcționarea modelului. Replicile copilului circulă pe lanțul vocal standard, iar la final robotul recapitulează povestea întreagă — moment care, în teste, s-a dovedit partea preferată a copiilor.
+
+\subsubsection*{Beneficiul terapeutic}
+Activitatea lucrează pe trei planuri deodată. Organizarea narativă — început, mijloc, sfârșit, cauză și efect — este o dificultate documentată la copiii din spectru și o țintă standard a intervențiilor de limbaj. Inițierea verbală se exersează natural, pentru că povestea nu avansează fără contribuția copilului. Și, poate cel mai valoros, schimbul de rând — „acum eu, acum tu” — este exact competența socială pe care LeGoff a pus-o în centrul terapiei LEGO \cite{legoff2004}, exersată aici pe canal verbal, fără piese.
+
+\subsection{Dansează cu mine (Dance with me)}
+
+Cea mai simplă activitate din repertoriu și, în testele informale, una dintre cele mai îndrăgite: robotul pornește o rutină de dans — brațele se mișcă ritmic, roțile pivotează stânga-dreapta — și invită copilul să danseze împreună cu el.
+
+\subsubsection*{Fluxul tehnic}
+Comanda de dans este una dintre rutinele motorii de bază ale hub-ului, declanșabilă pe orice cale de intrare: prin voce („let's dance!”, prinsă de detectorul de cuvinte-cheie), din alt joc ca recompensă (Stop \& Go o folosește pe post de probă „go”) sau direct de terapeut. Rutina de pe hub combină mișcarea ritmică a brațelor cu pivotări scurte ale roților stânga-dreapta, iar pe durata ei matricea afișează o expresie veselă. Fiind o rutină lungă, este și un test natural pentru stabilitatea LPF2: hub-ul execută mișcările local, fără să aibă nevoie de comenzi suplimentare, deci legătura rămâne liberă pentru heartbeat-ul de protocol.
+
+\subsubsection*{Beneficiul terapeutic}
+Sub aparența de simplă distracție, jocul exersează imitația motorie și coordonarea — aceleași constructe vizate de „Follow the Pattern”, dar fără componenta de memorare, deci accesibile și copiilor pentru care secvențele sunt încă prea grele. La fel de important este rolul lui în economia sesiunii: este activitatea de descărcare motorie care echilibrează sarcinile cognitive solicitante, iar mișcarea împreună construiește legătura copil--robot fără să ceară niciun cuvânt.
+
+\section{Componenta de vedere artificială}
+\label{sec:viziune}
+
+Scriptul \texttt{vision\_esp32cam\_bridge.py} leagă camera de restul sistemului: ascultă cererile de captură, preia imaginea JPEG de la ESP32-CAM, construiește promptul pentru Gemini Vision și publică verdictul structurat (potrivire booleană, scor de încredere, descrierea scenei) pe MQTT.
+
+Abordarea zero-shot — fără model antrenat, doar descrieri în limbaj natural — a funcționat surprinzător de bine, dar a cerut o calibrare atentă, făcută iterativ pe construcții reale:
+
+\begin{itemize}
+    \item \textbf{descrieri pe nivelul potrivit de detaliu}: pentru modelul „robot”, o descriere minuțioasă, piesă cu piesă, producea sistematic respingeri — modelul de viziune nu putea verifica fiecare strat dintr-o fotografie făcută dintr-un singur unghi. Reformularea descrierii în termeni de \emph{siluetă de ansamblu} (formă de cruce, simetrie) a rezolvat problema;
+    \item \textbf{instrucțiuni de ignorare}: promptul cere explicit ignorarea mâinilor copilului și a fundalului — în fotografiile reale construcția este adesea ținută în mână;
+    \item \textbf{prag calibrat empiric}: pragul de acceptare a scorului de încredere a fost coborât de la 0,6 la 0,4 după ce construcții corecte primeau scoruri în jur de 0,5 din cauza unghiului de fotografiere. Pragul final acceptă toate construcțiile corecte din testele noastre, respingând în continuare construcțiile greșite, ale căror scoruri rămân tipic sub 0,25.
+\end{itemize}
+
+\section{Metricile de sesiune}
+
+Modulul \texttt{metrics\_logger.py} înregistrează fiecare eveniment relevant — început și sfârșit de sesiune, fiecare joc cu parametrii lui (nivel, încercări, reușită, durată, scor de potrivire) — în două formate paralele: CSV pentru analiză tabelară și JSONL pentru procesare programatică. La finalul sesiunii se generează automat un raport sumar per copil și per activitate, în folderul \texttt{session\_reports/}. Fiecare raport poartă explicit mențiunea că datele susțin sesiuni de joc ghidate și nu constituie un test clinic validat — delimitare pe care o consider la fel de importantă ca funcționalitatea însăși.

@@ -21,6 +21,9 @@ Canal PupRemote "cmd" (uint8) — trebuie aliniat cu main_robot.py pe ESP:
   18  build model tinta TURN (Build the Model / Hanoi): coloana verticala pe matrice, ramane afisat
   19  build model tinta LINIE: rand orizontal de 3 pe matrice, ramane afisat
   20  build model tinta L: forma L pe matrice, ramane afisat
+  21  Stop&Go GO (1): cifra 1 + lumina verde (~3.5s)
+  22  Stop&Go FREEZE (0): cifra 0 + lumina rosie (~3.5s)
+  23  Stop&Go END: stinge lumina, redeseneaza T
 
 Montaj fizic diferit → poti folosi invertire pe un Motor sau schimba C/D sus/jos.
 
@@ -31,7 +34,7 @@ PAS 4 Pe PC: ghid vocal Audio TCP (PCM de pe laptop); MQTT doar action breathing
 
 from pybricks.hubs import PrimeHub
 from pybricks.pupdevices import Motor
-from pybricks.parameters import Port, Direction, Stop, Button
+from pybricks.parameters import Port, Direction, Stop, Button, Color
 from pybricks.tools import wait
 from pupremote_hub import PUPRemoteHub
 
@@ -218,6 +221,24 @@ def _draw_warning_triangle(hub, brightness=100):
     # Baza triunghi
     for col in range(5):
         hub.display.pixel(4, col, brightness)
+
+
+def _draw_digit_1(hub, brightness=100):
+    """Cifra 1 pe matrice 5x5 (Stop & Go GO)."""
+    hub.display.off()
+    for row in range(5):
+        hub.display.pixel(row, 2, brightness)
+
+
+def _draw_digit_0(hub, brightness=100):
+    """Cifra 0 pe matrice 5x5 (Stop & Go FREEZE)."""
+    hub.display.off()
+    for col in range(5):
+        hub.display.pixel(0, col, brightness)
+        hub.display.pixel(4, col, brightness)
+    for row in range(1, 4):
+        hub.display.pixel(row, 0, brightness)
+        hub.display.pixel(row, 4, brightness)
 
 
 def _draw_build_tower(hub, brightness=90):
@@ -646,6 +667,37 @@ def run_cmd(arm_left, arm_right, w_left, w_right, hub, code):
         print("Build model: ROBOT")
         _draw_build_robot(hub)
         keep_display = True
+    elif code == 21:
+        print("Stop&Go GO (1)")
+        _draw_digit_1(hub, 100)
+        try:
+            hub.light.on(Color.GREEN)
+        except Exception:
+            pass
+        _pulse_wait(3500)
+        try:
+            hub.light.off()
+        except Exception:
+            pass
+    elif code == 22:
+        print("Stop&Go FREEZE (0)")
+        _draw_digit_0(hub, 100)
+        try:
+            hub.light.on(Color.RED)
+        except Exception:
+            pass
+        _pulse_wait(3500)
+        try:
+            hub.light.off()
+        except Exception:
+            pass
+    elif code == 23:
+        print("Stop&Go END")
+        try:
+            hub.light.off()
+        except Exception:
+            pass
+        simple_cmd = True
     else:
         pass
 

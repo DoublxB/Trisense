@@ -7,3 +7,27 @@ __pycache__/
 *.pyc
 *.pyo
 .pytest_cache/
+
+# Artefacte generate LaTeX / prezentare
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.log
+*.nav
+*.out
+*.run.xml
+*.snm
+*.toc
+
+# Fisiere locale / temporare
+payload.json
+query
+py
+test_capture.jpg
+
+# Filmari brute si arhive locale mari
+Filmari/
+*.mov
+*.mp4
+*.zip

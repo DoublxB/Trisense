@@ -1,0 +1,28 @@
+\chapter{Concluzii}
+\label{cap:concluzii}
+
+\section{Concluzii generale}
+
+Lucrarea a pornit de la o întrebare pragmatică — se poate construi, din componente accesibile, un robot capabil să susțină activități terapeutice reale pentru copii neurodivergenți? — iar răspunsul demonstrat practic este afirmativ. TriSense există, funcționează cap-coadă pe hardware real și acoperă un ciclu complet de interacțiune: copilul apasă un buton pe robot, vorbește, robotul îl înțelege, îi răspunde cu voce și mișcare, îi propune jocuri, îi verifică vizual construcțiile LEGO și consemnează totul pentru terapeut.
+
+Din perspectivă tehnică, principala concluzie este că arhitectura distribuită pe trei niveluri — fiecare dispozitiv făcând strict ceea ce știe cel mai bine — a fost decizia care a făcut restul posibil. Hub-ul LEGO nu știe că există internet; ESP32 nu știe ce spune modelul de limbaj; PC-ul nu atinge niciun motor. Această separare a făcut fiecare componentă testabilă izolat și a localizat imediat fiecare defect — de la redarea sacadată (rezolvată prin buffering pe ESP32) până la interferența modelului generativ cu logica jocului (rezolvată prin izolarea stărilor în creier).
+
+Din perspectivă aplicativă, sistemul transpune fidel principiile documentate în literatura de specialitate: predictibilitatea și repetabilitatea pe care studiile despre roboți și autism \cite{scassellati2012, dautenhahn2004} le identifică drept cheia disponibilității copilului; materialul LEGO, intrinsec motivant, validat de cercetările LBT \cite{legoff2004, owens2008}; feedback-ul imediat și exclusiv pozitiv; și rolul de mediator, nu de substitut — robotul susține sesiunea, terapeutul o conduce.
+
+Merită consemnată și o concluzie metodologică despre folosirea modelelor de inteligență artificială generativă într-un sistem cu reguli stricte: puterea lor (flexibilitate, limbaj natural, verificare vizuală fără antrenare) vine la pachet cu nevoia de a le îngrădi explicit — prin prompturi atent formulate, prin praguri calibrate empiric și, mai ales, prin protejarea fluxului de control al jocurilor de creativitatea modelului conversațional.
+
+\section{Direcții de dezvoltare ulterioară}
+
+Catalogul de funcționalități schițat în faza de proiectare conține mult mai multe procedee decât au încăput în implementarea curentă, iar câteva direcții se conturează natural:
+
+\begin{itemize}
+    \item \textbf{validarea clinică extinsă}: primele sesiuni reale cu un copil neurodivergent (capitolul~\ref{cap:evaluare}) au decurs încurajator, copilul interacționând firesc cu robotul pe parcursul activităților; pasul rămas este confirmarea eficacității printr-un studiu amplu — eșantion de copii, protocol formal și avize etice — în colaborare cu terapeuți specializați în LBT, fiindcă abia astfel de date pot transforma argumentele de plauzibilitate din această lucrare în dovezi;
+    \item \textbf{jocurile aflate încă în stadiu de prototip}: N-back verbal (actualizarea memoriei de lucru) și Stroop adaptat (inhibiția interferenței), ambele deja proiectate pe hardware-ul existent — completarea lor ar acoperi întreg tripticul funcțiilor executive descris de Diamond;
+    \item \textbf{detecția stării emoționale din voce}: analiza prozodiei (ton, ritm, intensitate) ar permite robotului să sesizeze frustrarea înainte ca ea să escaladeze și să propună proactiv pauza de respirație;
+    \item \textbf{înlocuirea ferestrei fixe de înregistrare} cu detecția automată a activității vocale (VAD), pentru un dialog mai natural;
+    \item \textbf{funcționarea offline}: modele locale de transcriere și dialog ar elimina dependența de internet — relevantă pentru cabinete cu conectivitate slabă;
+    \item \textbf{interfața terapeutului}: un panou web pentru configurarea sesiunii (jocuri, niveluri, durată), urmărirea în timp real și vizualizarea istoricului de metrici per copil;
+    \item \textbf{personalizarea pe termen lung}: memoria persistentă a sistemului (preferințe, progres, nivel atins) poate alimenta adaptarea automată a dificultății între sesiuni.
+\end{itemize}
+
+Închei cu observația care mi se pare cea mai valoroasă din întregul proiect: niciuna dintre componentele folosite — setul LEGO, plăcile ESP32, serviciile de inteligență artificială — nu este exotică sau scumpă. Tot ce desparte un set educațional de un instrument terapeutic este integrarea. Iar integrarea, spre deosebire de hardware-ul specializat, se poate replica oriunde există un calculator, o rețea Wi-Fi și cineva dispus să o facă.

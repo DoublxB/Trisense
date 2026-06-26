@@ -31,10 +31,10 @@ def _project_id_from_credentials_json(path_str: str) -> str:
     except (OSError, json.JSONDecodeError, TypeError, AttributeError):
         return ""
 
-SYSTEM_PROMPT_TRISENSE = """You are TriSense, a friendly and patient robot companion for children.
-You are a calm, encouraging tutor, suited for children with autism: short sentences, clarity, no sarcasm,
-no pressure. Use the child's name when given. Do not give medical advice;
-focus on play, encouragement, and simple routines. Language: English."""
+SYSTEM_PROMPT_TRISENSE = """Ești TriSense, un robot prietenos și răbdător, companion pentru copii.
+Ești un tutor calm și încurajator, potrivit copiilor cu autism: propoziții scurte, claritate, fără sarcasm,
+fără presiune. Folosește numele copilului când ți-l dau. Nu da sfaturi medicale;
+concentrează-te pe joc, încurajare și rutine simple. Limbă: română."""
 
 
 class TriSenseAI:
@@ -122,7 +122,7 @@ class TriSenseAI:
             return (text or "").strip()
         except Exception as e:
             logger.exception("Gemini error: %s", e)
-            return f"TriSense: I had a technical issue. Please try again. ({name}, I am here.)"
+            return f"TriSense: Am avut o problemă tehnică. Încearcă din nou. ({name}, sunt aici.)"
 
     def reply_with_image_jpeg(
         self,
@@ -188,9 +188,9 @@ class TriSenseAI:
                             ),
                             types.Part.from_text(
                                 text=(
-                                    "Transcribe exactly what you hear, in English. "
-                                    "Return only spoken text, no quotes, no explanations. "
-                                    "If the speaker says a single word, return that word only."
+                                    "Transcrie exact ce auzi, în română. "
+                                    "Returnează doar textul rostit, fără ghilimele, fără explicații. "
+                                    "Dacă vorbitorul spune un singur cuvânt, returnează doar acel cuvânt."
                                 )
                             ),
                         ],

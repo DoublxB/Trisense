@@ -10,7 +10,7 @@ from typing import Optional
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # MQTT (compatibil HiveMQ public)
-MQTT_BROKER = os.environ.get("MQTT_BROKER", "192.168.80.106")
+MQTT_BROKER = os.environ.get("MQTT_BROKER", "192.168.100.134")
 MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
 MQTT_USE_TLS = os.environ.get("MQTT_USE_TLS", "0") == "1"
 
@@ -60,6 +60,8 @@ MQTT_CLIENT_ID_PC = os.environ.get("MQTT_CLIENT_ID_PC", "TriSense_PC_Brain_3")
 # Fisiere locale
 MEMORY_FILE = PROJECT_ROOT / "memorie_copil.json"
 METRICS_CSV = PROJECT_ROOT / "trisense_metrics.csv"
+METRICS_JSONL = PROJECT_ROOT / "trisense_metrics.jsonl"
+SESSION_REPORTS_DIR = PROJECT_ROOT / "session_reports"
 
 
 def default_google_credentials_path() -> Optional[Path]:

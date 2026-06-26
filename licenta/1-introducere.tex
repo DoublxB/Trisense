@@ -1,0 +1,48 @@
+\chapter{Introducere}
+\label{cap:introducere}
+
+\section{Context și motivație}
+
+Aproximativ unul din 36 de copii primește astăzi un diagnostic din spectrul autist, iar prevalența ADHD în populația pediatrică depășește 5\%. În spatele acestor cifre stau familii care caută intervenții timpurii, terapeuți supraîncărcați și — în România în mod special — un decalaj considerabil între nevoia de servicii specializate și disponibilitatea lor. Orice instrument care poate extinde capacitatea unui terapeut, fără a-i lua locul, are așadar o miză practică reală.
+
+Două direcții de cercetare, dezvoltate independent, sugerează o astfel de oportunitate. Prima este terapia bazată pe LEGO (LEGO-Based Therapy), formalizată de dr. Daniel LeGoff \cite{legoff2004} pornind de la o observație simplă: copiii cu autism, care evită de regulă interacțiunile sociale, colaborează spontan atunci când mediul de joc este un set de piese LEGO — un sistem cu reguli fizice clare, predictibil și lipsit de ambiguitatea care face interacțiunea umană obositoare pentru ei. Studiile ulterioare \cite{legoff2006, owens2008} au confirmat că abilitățile sociale exersate în acest cadru se mențin și se transferă.
+
+A doua direcție este robotica asistivă. O literatură consistentă \cite{scassellati2012, robins2005, cabibihan2013} documentează un fenomen aparent paradoxal: mulți copii cu autism interacționează mai ușor cu roboții decât cu oamenii. Robotul este predictibil, infinit răbdător, nu judecă și nu transmite semnale sociale contradictorii — exact proprietățile care reduc anxietatea socială a copilului și îl fac disponibil pentru învățare. Mai mult, studii precum cel al lui Kim și colaboratorii \cite{kim2013} arată că prezența robotului crește interacțiunea copilului \emph{cu adulții din încăpere}, nu doar cu mașina: robotul funcționează ca mediator social, nu ca substitut.
+
+Legătura cu practica nu a rămas doar teoretică. În timpul dezvoltării proiectului am avut ocazia să lucrez alături de psihoterapeuții Marius și Andreea Lumpan, în cadrul primei inițiative de LEGO-Based Therapy din România dedicată copiilor neurodivergenți \cite{lumpanagerpres2025}. Experiența lor în psihoterapie și practica LBT mi-au permis să observ cum interacționează copiii cu materialul LEGO în context terapeutic — colaborarea, toleranța la frustrare, ritmul sesiunii, rolul adultului care intervine înainte de escaladare. Aceste observații, împreună cu discuțiile despre structura jocurilor, au influențat direct deciziile de design ale TriSense: instrucțiuni scurte, feedback fără penalizare, ritualuri predictibile și pauze de reglare. Nu este vorba despre validarea clinică a sistemului, ci despre ancorarea unei demonstrații tehnice în realitatea unei sesiuni ghidate de terapeut.
+
+TriSense s-a născut la intersecția acestor două direcții. L-am pornit ca proiect personal pentru competiția World Robot Olympiad (categoria Proiect), iar în cadrul acestei lucrări l-am dezvoltat într-un sistem complet — întreaga construcție, de la hardware la cod, fiind realizată individual. Întrebarea de la care am plecat a fost una pragmatică: se poate construi, din componente accesibile oricărei școli sau cabinet — un set LEGO educațional, două plăci de dezvoltare de câteva zeci de lei și un laptop obișnuit — un robot capabil să susțină activități terapeutice reale, cu dialog vocal, jocuri structurate și feedback obiectiv pentru terapeut?
+
+\section{Problema abordată}
+
+Formulată tehnic, problema centrală a lucrării este următoarea: \emph{proiectarea și implementarea unui sistem cyber-fizic care să orchestreze, în timp real și în mod fiabil, componente diferite — un hub LEGO cu resurse de calcul minimale, un microcontroler cu conectivitate Wi-Fi, o cameră independentă și servicii de inteligență artificială în cloud — într-o experiență de interacțiune coerentă, predictibilă și adaptată copiilor neurodivergenți.}
+
+Dificultatea nu stă în niciuna dintre componente luată separat, ci în integrarea lor. Hub-ul LEGO nu are acces la rețea; placa ESP32 are rețea, dar resurse de calcul limitate; modelele de inteligență artificială sunt puternice, dar rulează în cloud, cu latențe variabile; iar utilizatorul final este un copil pentru care orice întrerupere, bâlbâială a vocii sau comportament imprevizibil al robotului poate compromite sesiunea. Fiecare decizie de arhitectură din această lucrare — de la alegerea protocoalelor de comunicație până la dimensiunea buffer-elor audio — a fost luată cu această constrângere în minte.
+
+\section{Obiectivele lucrării}
+
+Obiectivul general este realizarea unui sistem robotic asistiv funcțional cap-coadă, validat pe hardware real. Din el decurg obiectivele specifice:
+
+\begin{enumerate}
+    \item proiectarea unei arhitecturi distribuite pe trei niveluri de execuție (hub LEGO, placă ESP32, PC), cu protocoale de comunicație adecvate fiecărui tip de trafic: MQTT pentru mesaje de control, canal serial LPF2 pentru legătura hub--ESP32 și fluxuri TCP pentru audio;
+    \item implementarea unui lanț vocal complet: captura audio pe robot, transcrierea automată a vorbirii, generarea răspunsului cu un model de limbaj de mari dimensiuni și sinteza vocală redată pe difuzorul robotului, cu latență și calitate acceptabile pentru un dialog natural;
+    \item implementarea unui set de activități terapeutice inspirate din literatura de specialitate — recunoașterea emoțiilor, imitarea tiparelor de mișcare, jocul de construcție „Build the Model” cu verificare automată prin vedere artificială, exercițiul de respirație, jocuri de funcții executive (Stop \& Go, estimarea timpului, categorii rapide), povestea co-construită și o rutină de dans;
+    \item integrarea unei componente de vedere artificială capabilă să verifice construcțiile LEGO ale copilului fără antrenarea unui model dedicat, folosind un model multimodal în regim zero-shot;
+    \item colectarea automată a metricilor de sesiune (activități, durate, încercări, reușite) într-un format direct utilizabil de terapeut.
+\end{enumerate}
+
+\section{Contribuții}
+
+Contribuțiile lucrării sunt în primul rând de natură implementativă — sistemul există, funcționează și a fost testat pe hardware real:
+
+\begin{itemize}
+    \item o arhitectură cyber-fizică pe trei niveluri care separă clar responsabilitățile: corpul (hub LEGO cu Pybricks), trunchiul de comunicație (LMS-ESP32 cu MicroPython) și creierul (aplicație Python pe PC);
+    \item un canal de comunicație bidirecțional peste protocolul LPF2, incluzând transmiterea evenimentelor de la butoanele fizice ale hub-ului către restul sistemului — ceea ce transformă hub-ul dintr-un simplu executant într-o interfață de intrare pentru copil (apasă un buton ca să vorbească, altul ca să fotografieze construcția);
+    \item un pipeline audio de streaming PCM peste TCP cu buffering calibrat experimental, care elimină întreruperile de redare pe un microcontroler cu memorie limitată;
+    \item o metodă de verificare a construcțiilor LEGO bazată pe descrieri în limbaj natural și un model multimodal zero-shot, cu prag de acceptare calibrat empiric — extensibilă la modele noi fără date de antrenare;
+    \item un set de activități terapeutice implementate complet — de la recunoașterea emoțiilor și jocul de construcție cu verificare vizuală până la jocurile de funcții executive și povestea co-construită — plus infrastructura de metrici și rapoarte de sesiune pentru terapeut.
+\end{itemize}
+
+\section{Structura lucrării}
+
+Restul lucrării este organizat astfel. Capitolul~\ref{cap:preliminarii} parcurge fundamentele: studiile de specialitate despre terapia LEGO și despre interacțiunea copiilor cu autism cu roboții, reperele piagetiene și vygotskiene, poziționarea față de orientările psihologice majore, conceptul de sistem cyber-fizic și tehnologiile folosite. Capitolul~\ref{cap:arhitectura} prezintă arhitectura sistemului și fluxurile de date dintre componente. Capitolul~\ref{cap:implementare} coboară la nivelul implementării: firmware-ul fiecărui dispozitiv, aplicația de pe PC, jocurile terapeutice și componenta de viziune. Capitolul~\ref{cap:evaluare} descrie testarea sistemului și rezultatele obținute, inclusiv date din sesiuni reale de joc, împreună cu considerațiile etice. Capitolul~\ref{cap:concluzii} sintetizează concluziile și direcțiile de dezvoltare. Anexa~\ref{anexa:cod} prezintă structura proiectului software.

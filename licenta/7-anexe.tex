@@ -1,0 +1,36 @@
+\appendix
+
+\chapter{Structura proiectului software}
+\label{anexa:cod}
+
+Codul sursă complet al sistemului este disponibil în repository-ul public al proiectului:
+
+\begin{center}
+    \url{https://github.com/DoublxB/Trisense}
+\end{center}
+
+Componentele principale sunt organizate astfel:
+
+\begin{table}[htb]
+    \centering
+    \caption{Fișierele și modulele principale ale proiectului.}
+    \label{tab:structura}
+    \small
+    \begin{tabular}{|l|l|}
+        \hline
+        \textbf{Fișier / modul} & \textbf{Rol} \\
+        \hline
+        \texttt{main.py} & firmware Pybricks pentru hub-ul LEGO \\
+        \texttt{main\_robot.py} & firmware MicroPython pentru placa LMS-ESP32 \\
+        \texttt{run\_voice\_dialog.py} & punct de intrare al creierului (mod vocal) \\
+        \texttt{trisense/brain.py} & orchestrarea stărilor, dialogului și jocurilor \\
+        \texttt{trisense/ai\_client.py} & interfața cu modelele Gemini (dialog, STT) \\
+        \texttt{trisense/tts\_engine.py} & sinteza vocală cu fallback \\
+        \texttt{trisense/cognitive\_games.py} & definițiile jocurilor și nivelurilor \\
+        \texttt{trisense/mqtt\_layer.py} & stratul de comunicație MQTT \\
+        \texttt{trisense/voice\_tcp\_server.py} & serverul TCP pentru audio de la robot \\
+        \texttt{trisense/metrics\_logger.py} & jurnalizarea metricilor de sesiune \\
+        \texttt{testare/vision\_esp32cam\_bridge.py} & puntea cameră--Gemini Vision \\
+        \hline
+    \end{tabular}
+\end{table}

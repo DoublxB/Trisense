@@ -1,0 +1,70 @@
+\chapter{Implementare}
+\label{cap:implementare}
+
+Acest capitol coboară de la arhitectură la cod. Proiectul însumează câteva mii de linii de Python pe trei medii de execuție diferite — Pybricks pe hub, MicroPython pe ESP32 și CPython pe PC. Prezint componentele în ordinea în care circulă informația, iar fragmentele de cod, catalogul detaliat al jocurilor și figurile suplimentare sunt reluate în anexa~\ref{an:cap:implementare}.
+
+\section{Construcția fizică și firmware-ul dispozitivelor}
+
+Robotul (figura~\ref{fig:robot-overview}) este construit din piese LEGO SPIKE Prime: un corp compact cu două brațe acționate de motoare medii și două roți motrice, cu hub-ul montat frontal și matricea de LED-uri vizibilă — aceasta joacă rolul de „față” și de ecran pentru tiparele de joc. Placa LMS-ESP32 este conectată la portul A printr-un cablu LPF2, primind de acolo și alimentarea; pe mini-breadboard-uri sunt montate amplificatorul MAX98357A cu difuzor și microfonul INMP441, cablate pe magistrala I2S. Modulul ESP32-CAM este alimentat din placă, dar funcționează ca dispozitiv de rețea independent.
+
+\begin{figure}[htb]
+    \centering
+    \begin{minipage}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\linewidth, height=0.32\textheight, keepaspectratio]{robot-trisense-perspectiva.png}
+    \end{minipage}
+    \hfill
+    \begin{minipage}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\linewidth, height=0.32\textheight, keepaspectratio]{robot-trisense-lateral.png}
+    \end{minipage}
+    \caption[Robotul TriSense — vedere de ansamblu]{%
+        Robotul TriSense în configurația finală: vedere frontal-oblică (stânga) și laterală (dreapta).%
+        \par\smallskip
+        {\small Se observă corpul LEGO, hub-ul montat frontal, roțile laterale, brațele mobile și modulele audio/video integrate.}%
+    }
+    \label{fig:robot-overview}
+\end{figure}
+
+Pe hub, programul \texttt{main.py} (Pybricks) are o structură deliberat simplă: o buclă care procesează mesajele LPF2 și citește butoanele. Toată „personalitatea” motorie — felul în care ridică brațele când se bucură, tremurul din rutina de \emph{meltdown}, ritmul lent al respirației — este codificată în rutine apelate prin coduri numerice. Rutina de \emph{meltdown} merită o mențiune: pune în scenă, stilizat și inofensiv, starea de criză din secțiunea~\ref{sec:meltdown}, după care robotul se „liniștește” prin rutina de respirație, modelând pentru copil o strategie concretă de autoreglare. Citirea butoanelor folosește \emph{debounce} software și transmite codul către ESP32 pe canalul \texttt{btn} (butonul stâng: copilul vrea să vorbească; butonul drept: fotografiază construcția).
+
+Pe ESP32, programul \texttt{main\_robot.py} este componenta cu cele mai multe responsabilități simultane — client MQTT, punte LPF2, player audio și recorder — pe un microcontroler fără sistem de operare. Bucla principală este de aceea integral non-blocantă. Două probleme de implementare au fost instructive. Prima: \emph{redarea sacadată} a vocii, cauzată de debitul variabil al Wi-Fi-ului care golea buffer-ul DMA al interfeței I2S; soluția a fost un pre-buffer TCP de 32~KB plus un buffer DMA de aceeași dimensiune (valori găsite empiric), după care întreruperile au dispărut complet. A doua: \emph{stabilitatea legăturii LPF2} — hub-ul declară „senzorul” deconectat dacă nu primește răspuns la \texttt{pr.process()} în circa 40~ms, iar operațiile audio și de rețea sunt blocante prin natura lor; a fost nevoie de un set întreg de ajustări (felii audio dimensionate sub pragul de toleranță, I2S non-blocant, recepție TCP fragmentată, un \emph{ticker} LPF2 pe al doilea nucleu și ferestre de stabilizare după I2S), detaliate în anexa~\ref{an:cap:implementare}. După aplicarea lor, deconectările au dispărut chiar în scenariul cel mai solicitant: înregistrare de 5~s urmată imediat de redarea răspunsului, cu mișcări comandate între ele.
+
+\section{Aplicația „creier” de pe PC}
+
+Pachetul \texttt{trisense} concentrează logica de nivel înalt; punctul de intrare pentru modul vocal (\texttt{run\_voice\_dialog.py}) pornește serverul TCP de voce și instanțiază \texttt{TriSenseBrain}. La sosirea unei transcrieri, creierul parcurge o cascadă de decizii: verifică întâi starea curentă (dacă un joc e în desfășurare, intrarea se interpretează în contextul lui), apoi caută intenții explicite de acțiune sau de joc și, abia dacă niciun tipar nu se potrivește, trimite textul modelului conversațional Gemini, al cărui \emph{system prompt} fixează persona robotului: prietenos, răbdător, propoziții scurte, întotdeauna încurajator. Sinteza vocală (\texttt{tts\_engine.py}) folosește două motoare aduse la același format de ieșire — Google Cloud TTS și \texttt{edge-tts} — cu comutare automată la orice eroare a motorului principal, astfel încât robotul să nu rămână niciodată mut.
+
+\section{Jocurile terapeutice}
+
+Fiecare joc pornește de la un construct psihologic documentat și se sprijină pe o combinație diferită de capabilități ale sistemului. Tabelul~\ref{tab:jocuri} sintetizează repertoriul implementat; descrierea completă a fiecărui joc — fluxul tehnic și beneficiul terapeutic — este reluată în anexa~\ref{an:cap:implementare}.
+
+\begin{table}[htb]
+    \centering
+    \caption{Repertoriul de activități terapeutice implementate în TriSense.}
+    \label{tab:jocuri}
+    \small
+    \begin{tabular}{|>{\raggedright\arraybackslash}p{3.4cm}|>{\raggedright\arraybackslash}p{4.3cm}|>{\raggedright\arraybackslash}p{5.3cm}|}
+        \hline
+        \textbf{Activitate} & \textbf{Construct vizat} & \textbf{Capabilități folosite} \\
+        \hline
+        Ghicește emoția & recunoașterea și etichetarea emoțiilor & mișcare + expresie pe LED, voce, transcriere \\
+        Urmează tiparul & memorie de lucru secvențială, imitație motorie & secvențe motorii, evaluare de către terapeut \\
+        Build the Model & planificare vizuo-spațială (Turnul din Hanoi) & hub, butoane, cameră, viziune zero-shot \\
+        Breathing Buddy & autoreglare emoțională, prevenirea meltdown-ului & rutină motorie + ghidaj vocal sincronizat \\
+        Stop \& Go & control inhibitor (Go/No-Go) & matrice + lumină centrală, voce \\
+        Categorii rapide & fluență semantică, acces lexical & lanț vocal, validare cu modelul de limbaj \\
+        Estimarea timpului & percepția temporală & cronometru local, lanț vocal \\
+        Povestea co-construită & organizare narativă, schimb de rând & model conversațional (persona de povestitor) \\
+        Dansează cu mine & imitație motorie, coordonare, descărcare & rutină motorie (brațe + roți) \\
+        \hline
+    \end{tabular}
+\end{table}
+
+Cel mai complex joc este \textbf{Build the Model}, inspirat din proba Turnului din Hanoi, care leagă toate componentele — hub, voce, butoane, cameră și viziune. Are trei niveluri cu dificultate crescătoare (turn, piramidă, „robot”): la pornire, creierul afișează tiparul pe matrice (cu \texttt{keep\_display}) și publică descrierea-țintă pentru puntea de viziune; copilul construiește în ritmul lui și, când termină, apasă butonul drept, care declanșează captura. Verdictul lui Gemini Vision devine feedback vocal — felicitare și trecere la nivelul următor, sau încurajare și o descriere blândă a ceea ce mai lipsește. Faptul că validarea vine de la un robot, nu de la un adult, scoate din ecuație presiunea evaluării sociale.
+
+\section{Componenta de vedere artificială și metricile de sesiune}
+\label{sec:viziune}
+
+Scriptul \texttt{vision\_esp32cam\_bridge.py} ascultă cererile de captură, preia imaginea JPEG de la ESP32-CAM, construiește promptul pentru Gemini Vision și publică verdictul structurat (potrivire booleană, scor de încredere, descrierea scenei). Abordarea \emph{zero-shot} — fără model antrenat, doar descrieri în limbaj natural — a funcționat surprinzător de bine, dar a cerut o calibrare iterativă: descrieri pe nivelul potrivit de detaliu (pentru „robot”, silueta de ansamblu, nu piesă cu piesă), instrucțiuni explicite de ignorare a mâinilor și a fundalului, și un prag de acceptare coborât de la 0,6 la 0,4 — valoare care acceptă toate construcțiile corecte din teste, respingând în continuare construcțiile greșite (scoruri tipic sub 0,25).
+
+Modulul \texttt{metrics\_logger.py} înregistrează fiecare eveniment relevant (început/sfârșit de sesiune, fiecare joc cu nivel, încercări, reușită, durată, scor) în două formate paralele — CSV și JSONL — și generează automat, la final, un raport sumar per copil și per activitate. Fiecare raport poartă explicit mențiunea că datele susțin sesiuni de joc ghidate și nu constituie un test clinic validat — o delimitare la fel de importantă ca funcționalitatea însăși.

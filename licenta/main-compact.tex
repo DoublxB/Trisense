@@ -1,0 +1,221 @@
+% Lucrare de licență — TriSense — VARIANTA COMPACTĂ
+%
+% Această variantă respectă recomandarea ghidului FMI de maximum 20 de pagini
+% pentru capitolele IV-VII (Introducere -> Concluzii). Materialul detaliat
+% (catalogul complet al jocurilor, listările de cod, figurile secundare și
+% măsurile fine de robustețe) este mutat în Anexe, care nu intră în limită.
+%
+% Compilare: XeLaTeX (necesar pentru fontspec + polyglossia).
+
+\documentclass[12pt, a4paper]{report}
+
+% Suport pentru diacritice și alte simboluri
+\usepackage{fontspec}
+
+% Font Times New Roman (font real, prin fontspec)
+\setmainfont{Times New Roman}
+
+% Suport pentru mai multe limbi
+\usepackage{polyglossia}
+
+% Setează limba textului la română
+\setdefaultlanguage{romanian}
+% Engleză pentru rezumat
+\setotherlanguages{english}
+
+% Indentează și primul paragraf al fiecărei noi secțiuni
+\SetLanguageKeys{romanian}{indentfirst=true}
+
+% Suport pentru diferite stiluri de ghilimele
+\usepackage{csquotes}
+
+\DeclareQuoteStyle{romanian}
+  {\quotedblbase}
+  {\textquotedblright}
+  {\guillemotleft}
+  {\guillemotright}
+
+% Utilizează biblatex pentru referințe bibliografice
+\usepackage[
+    maxbibnames=50,
+    sorting=nty
+]{biblatex}
+
+\addbibresource{bibliography.bib}
+
+% Spațiere inter-linie (1.5 rânduri, conform ghidului de redactare)
+\usepackage{setspace}
+\onehalfspacing
+
+% Geometria paginii (margini de 2,5 cm)
+\usepackage[margin=2.5cm]{geometry}
+
+% Permite o ușoară întindere a spațiilor pentru a evita liniile care ies în margine
+\setlength{\emergencystretch}{2em}
+
+% Despărțire în silabe: hardware → hard-ware (nu har-dware)
+\hyphenation{hard-ware}
+
+% Coloane de tabel cu lățime fixă și aliniere personalizată
+\usepackage{array}
+
+% Funcții de grafică
+\usepackage{graphicx}
+% Încarcă imaginile din directorul `images`
+\graphicspath{{./images/}}
+
+% Diagrame desenate nativ în LaTeX
+\usepackage{tikz}
+\usetikzlibrary{positioning, arrows.meta, fit, backgrounds, calc}
+
+% Listări de cod
+\usepackage{listings}
+\usepackage{xcolor}
+\lstset{
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    frame=single,
+    numbers=left,
+    numberstyle=\tiny,
+    keywordstyle=\bfseries,
+    commentstyle=\color{gray},
+    showstringspaces=false,
+    tabsize=4
+}
+
+% Linkuri interactive în PDF
+\usepackage[
+    colorlinks,
+    linkcolor={black},
+    menucolor={black},
+    citecolor={black},
+    urlcolor={blue}
+]{hyperref}
+\hypersetup{
+    pdftitle={TriSense: sistem cyber-fizic adaptiv pentru robotica asistivă în intervenții pentru copii neurodivergenți},
+    pdfauthor={Boca Bogdan-Nicolae},
+    pdfsubject={Proiect de diplomă},
+    pdfkeywords={robotică asistivă, sisteme cyber-fizice, neurodivergență, LEGO-Based Therapy}
+}
+
+% Simboluri matematice codificate Unicode
+\usepackage[warnings-off={mathtools-colon,mathtools-overbracket}]{unicode-math}
+
+% Comenzi matematice
+\usepackage{amsmath}
+\usepackage{mathtools}
+
+% Formule matematice
+\newcommand{\bigO}[1]{\symcal{O}\left(#1\right)}
+\DeclarePairedDelimiter\abs{\lvert}{\rvert}
+
+% Suport pentru rezumat în două limbi
+\newenvironment{abstractpage}
+  {\cleardoublepage\vspace*{\fill}\thispagestyle{empty}}
+  {\vfill\cleardoublepage}
+\renewenvironment{abstract}[1]
+  {\bigskip\selectlanguage{#1}%
+   \begin{center}\bfseries\abstractname\end{center}}
+  {\par\bigskip}
+
+% Suport pentru anexe
+\usepackage{appendix}
+
+% Stiluri diferite de headere și footere
+\usepackage{fancyhdr}
+
+% Legende de figuri/tabele
+\usepackage{caption}
+\captionsetup{
+    labelfont=bf,
+    font=small,
+    margin=10pt,
+    skip=10pt,
+    justification=justified,
+    singlelinecheck=false
+}
+
+% Titluri de capitole și secțiuni stilizate
+\usepackage{titlesec}
+
+% Capitolele nu încep pe pagină nouă (cerință a ghidului de redactare FMI):
+% transformăm clasa „chapter” în una care curge în pagină, ca o secțiune.
+\titleclass{\chapter}{straight}
+
+% Capitol: eticheta „Capitolul N” sus, titlul mare, linie groasă dedesubt
+\titleformat{\chapter}[display]
+  {\normalfont\bfseries}
+  {\Large\MakeUppercase{\chaptertitlename}\ \thechapter}
+  {8pt}
+  {\huge}
+  [\vspace{6pt}{\titlerule[1.5pt]}]
+\titlespacing*{\chapter}{0pt}{18pt}{20pt}
+
+% Secțiune: îngroșată, subliniată cu o linie fină
+\titleformat{\section}
+  {\normalfont\Large\bfseries}
+  {\thesection}{1em}{}
+  [\vspace{2pt}{\titlerule[0.5pt]}]
+
+% Subsecțiune: îngroșată, fără linie
+\titleformat{\subsection}
+  {\normalfont\large\bfseries}
+  {\thesubsection}{1em}{}
+
+% Metadate
+\title{TriSense: sistem cyber-fizic adaptiv pentru robotica asistivă în intervenții pentru copii neurodivergenți}
+\author{Boca Bogdan-Nicolae}
+
+% Generează variabilele cu @
+\makeatletter
+
+\begin{document}
+
+% Front matter
+\cleardoublepage
+\let\ps@plain
+
+% Pagina de titlu
+\include{0-title}
+\restoregeometry
+\newgeometry{
+    margin=2.5cm
+}
+
+\fancypagestyle{main}{
+  \fancyhf{}
+  \renewcommand\headrulewidth{0.4pt}
+  \fancyhead[L]{\small\itshape\nouppercase{\leftmark}}
+  \fancyhead[R]{\small TriSense}
+  \fancyfoot[C]{\thepage}
+}
+
+\addtocounter{page}{1}
+
+% Rezumatul
+\include{0-abstract}
+
+\tableofcontents
+
+% Main matter
+\cleardoublepage
+\pagestyle{main}
+\let\ps@plain\ps@main
+
+\include{1-introducere-compact}
+\include{2-preliminarii-compact}
+\include{3-arhitectura-compact}
+\include{4-implementare-compact}
+\include{5-evaluare-compact}
+\include{6-concluzii-compact}
+
+\printbibliography[heading=bibintoc]
+
+% Anexe (conțin materialul detaliat din varianta completă a lucrării)
+\include{7-anexe}
+\include{anexa-2-preliminarii}
+\include{anexa-3-arhitectura}
+\include{anexa-4-implementare}
+\include{anexa-5-evaluare}
+
+\end{document}

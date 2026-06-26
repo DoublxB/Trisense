@@ -1,0 +1,145 @@
+\chapter{Fundamente teoretice și studii de specialitate}
+\label{an:cap:preliminarii}
+
+Acest capitol trece în revistă literatura care a stat la baza proiectului — de la studiile clinice despre terapia bazată pe LEGO și despre interacțiunea copiilor cu autism cu roboții, la reperele constructiviste (Piaget) și socioculturale (Vygotsky), la poziționarea eclectică față de orientările psihologice majore (cognitiv-comportamentală și umanistă), până la conceptele și tehnologiile pe care se sprijină implementarea. Am încercat să păstrez un fir logic: pornesc de la întrebarea „de ce ar ajuta un robot un copil neurodivergent?”, continui cu „ce spun studiile și teoriile clasice că funcționează?” și închei cu „ce instrumente tehnice am la dispoziție ca să construiesc așa ceva?”.
+
+\section{Neurodivergența: tulburările din spectrul autist și ADHD}
+
+Termenul de \emph{neurodivergență} a apărut ca alternativă la limbajul strict medical și descrie variațiile naturale ale funcționării neurologice umane. În această categorie intră, printre altele, tulburările din spectrul autist (TSA), tulburarea de deficit de atenție și hiperactivitate (ADHD) și dislexia. Conform Manualului de Diagnostic și Statistică a Tulburărilor Mintale, ediția a cincea \cite{apa2013}, TSA se caracterizează prin deficite persistente în comunicarea și interacțiunea socială, alături de tipare restrictive și repetitive de comportament, interese sau activități. Severitatea variază enorm de la un copil la altul — de aici și denumirea de „spectru”.
+
+Pentru lucrarea de față, două aspecte ale TSA sunt deosebit de relevante. Primul: copiii din spectru procesează adesea cu dificultate indiciile sociale subtile (expresii faciale, ton al vocii, contact vizual), ceea ce face interacțiunea cu alți oameni obositoare și uneori anxiogenă. Al doilea: aceiași copii răspund de regulă foarte bine la medii \emph{structurate și predictibile}, în care regulile sunt explicite și consecințele sunt consistente. Ambele observații conduc, după cum vom vedea, direct către robotică.
+
+În cazul ADHD, dificultățile centrale țin de funcțiile executive — control inhibitor, memorie de lucru și flexibilitate cognitivă \cite{diamond2013} — competențe pe care le abordăm explicit, împreună cu rolul terapeutului uman în sesiune, în subsecțiunea~\ref{sec:executive-terapeut}.
+
+\subsection{Suprasolicitarea senzorială și fenomenul de \emph{meltdown}}
+\label{an:sec:meltdown}
+
+Un fenomen aparte, central pentru orice intervenție adresată copiilor din spectru, este criza de suprasolicitare — în literatura de limbă engleză, \emph{meltdown}. Termenul este adesea confundat, în limbajul comun, cu „criza de nervi” sau cu capriciul. Distincția este însă esențială și bine documentată: capriciul este un comportament orientat către un scop (copilul urmărește să obțină ceva și se oprește când îl obține), pe când meltdown-ul este o reacție involuntară de descărcare, declanșată atunci când acumularea de stimuli — senzoriali, emoționali, cognitivi — depășește capacitatea de procesare a copilului. Odată depășit acest prag, copilul nu mai are acces la mecanismele obișnuite de autoreglare: nu „alege” să se comporte astfel și, în consecință, nici recompensele, nici admonestările nu au efect în acel moment — dimpotrivă, presiunea suplimentară prelungește episodul.
+
+Cercetarea clinică susține această lectură. Mazefsky și colaboratorii \cite{mazefsky2013} argumentează că dificultățile de reglare emoțională nu sunt un simptom periferic al TSA, ci un mecanism central care explică o mare parte din comportamentele-problemă observate: copilul din spectru resimte emoțiile la intensitate crescută, dar dispune de strategii de reglare mai puține și mai fragile, astfel încât stări pe care un copil neurotipic le-ar „metaboliza” discret pot escalada rapid. O perspectivă complementară, valoroasă tocmai pentru că vine din interior, o oferă Phung și colaboratorii \cite{phung2021}, care au intervievat adolescenți autiști despre propriile experiențe: tinerii descriu meltdown-ul ca pe o pierdere a controlului precedată de semne care se acumulează treptat (iritabilitate, nevoia de retragere, hipersensibilitate la zgomot) și urmată de epuizare și, frecvent, de rușine. Două concluzii practice se desprind din aceste relatări: episoadele pot fi adesea \emph{prevenite} dacă semnele timpurii sunt observate la timp, iar reacția cea mai utilă a celor din jur este una calmă, predictibilă și lipsită de judecată.
+
+Aceste observații au modelat TriSense pe două planuri. Pe plan \emph{preventiv}, întreaga interacțiune este construită să reducă riscul de suprasolicitare: structura sesiunilor este predictibilă, feedback-ul este întotdeauna pozitiv, iar exercițiul de respirație ghidat de robot oferă o pauză de reglare exact în logica pauzelor senzoriale recomandate în practica terapeutică. Pe plan \emph{educativ}, robotul poate interpreta el însuși, în scenarii demonstrative, o variantă stilizată și inofensivă a stării de criză — brațe agitate, expresie tulburată pe matricea de LED-uri (figura~\ref{fig:robot}) — după care „se liniștește” prin propria rutină de respirație. Copilul ajunge astfel să observe și să denumească starea din exterior, fără să fie el cel aflat în ea, iar robotul modelează în același timp o strategie concretă de autoreglare. Este aceeași logică a externalizării pe care o folosesc poveștile sociale ale lui Gray, despre care va fi vorba mai jos.
+
+\section{Terapia bazată pe LEGO}
+
+Punctul de plecare conceptual al proiectului TriSense este terapia bazată pe LEGO (LEGO-Based Therapy, prescurtat LBT). Ideea îi aparține doctorului Daniel LeGoff, neuropsiholog clinician, care a observat în sala de așteptare a cabinetului său ceva neașteptat: doi copii cu autism, care în mod obișnuit nu inițiau interacțiuni sociale, au început spontan să vorbească unul cu altul despre construcțiile LEGO pe care le aduseseră de acasă. Pornind de la această observație, LeGoff a formalizat un protocol de intervenție în care construcția colaborativă cu piese LEGO devine mediul terapeutic propriu-zis \cite{legoff2004}.
+
+În studiul inițial, publicat în \emph{Journal of Autism and Developmental Disorders}, LeGoff a urmărit 47 de copii cu diagnostic din spectrul autist pe parcursul a 24 de săptămâni de terapie. Rezultatele au arătat îmbunătățiri semnificative pe trei dimensiuni măsurate: frecvența autoinițierii contactului social, durata interacțiunilor sociale și reducerea comportamentelor stereotipe. Un studiu ulterior de follow-up pe trei ani \cite{legoff2006} a confirmat că efectele se mențin în timp și că progresul copiilor din grupul LBT a depășit semnificativ grupul de control care primise alte intervenții.
+
+Independent de echipa lui LeGoff, grupul lui Simon Baron-Cohen de la Universitatea Cambridge a comparat LBT cu un alt program consacrat de abilități sociale (Social Use of Language Programme) pe copii cu autism înalt funcțional și sindrom Asperger \cite{owens2008}. Concluzia: copiii din grupul LEGO au înregistrat ameliorări superioare ale comportamentelor sociale specifice autismului. Autorii atribuie acest efect caracterului \emph{intrinsec motivant} al materialului — copiii nu „fac terapie”, ci se joacă cu LEGO, iar abilitățile sociale se exersează ca efect secundar al jocului.
+
+De ce funcționează piesele LEGO atât de bine? Literatura oferă câteva explicații convergente. Sistemul LEGO este predictibil: piesele se îmbină într-un singur mod corect, regulile sunt fizice, nu sociale, iar rezultatul este vizibil imediat. Pentru un copil căruia ambiguitatea socială îi provoacă anxietate, acest determinism este eliberator. În plus, construcția după model implică exact funcțiile executive vizate de intervențiile cognitive: planificare, memorie de lucru, atenție la detaliu și persistență la sarcină.
+
+TriSense preia acest cadru și îl augmentează: robotul devine partenerul de joc care propune modelul, urmărește construcția și oferă feedback — un rol pe care în LBT clasic îl joacă terapeutul sau un alt copil.
+
+În România, metoda a fost adaptată de psihoterapeuții Marius și Andreea Lumpan, care descriu LBT ca pe un cadru în care copiii neurodivergenți și neurotipici construiesc împreună, dezvoltând competențe emoționale, sociale și cognitive \cite{lumpanagerpres2025}. Experiența mea alături de ei în acest context a completat lectura articolelor internaționale: am observat direct cum terapeutul calibrează ritmul sesiunii, când intervine înainte de escaladare și cum materialul LEGO menține copilul în sarcină fără presiune evaluativă — observații care au influențat ulterior designul jocurilor TriSense.
+
+\section{Constructivism cognitiv și învățarea socioculturală}
+
+Pe lângă protocoalele clinice și studiile despre roboți, designul activităților TriSense se sprijină și pe două orientări clasice din psihologia educațională: constructivismul lui Jean Piaget și teoria socioculturală a lui Lev Vygotsky. Nu le folosim ca etichete teoretice goale — explică de ce are sens ca un copil să \emph{construiască} cu mâinile, să primească indicii clare și să dialogheze cu un partener predictibil.
+
+Piaget descrie dezvoltarea ca pe un proces activ: copilul nu absoarbe pasiv informații, ci își construiește înțelegerea prin acțiune asupra mediului, prin asimilarea experiențelor noi în scheme deja existente și prin acomodare când realitatea nu se potrivește așteptărilor \cite{piaget1969}. Manipularea pieselor LEGO — potrivirea, ordinea, verificarea dacă modelul arată „ca pe ecran” — este un exemplu concret de învățare prin acțiune: copilul formulează o ipoteză (reproduc structura), o testează (apasă butonul de verificare), primește feedback și ajustează construcția. Jocul „Build the Model”, imitarea tiparelor de mișcare sau sortarea cuvintelor pe categorii se aliniază acestei logici: sarcina solicită organizare, seriere și persistență, nu memorarea mecanică a unui răspuns dat de adult.
+
+Vygotsky mută accentul de la individ izolat la \emph{medierea socială}. Învățarea semnificativă apare în zona dintre ce poate copilul singur și ce poate cu sprijin — zona proximală de dezvoltare —, iar un partener mai competent (profesor, părinte, coleg) structurează sarcina pas cu pas, apoi retrage treptat ajutorul \cite{vygotsky1978}. Limbajul, gesturile și semnele culturale (inclusiv reprezentări vizuale simple) sunt instrumente prin care copilul internalizează strategii pe care inițial le folosește doar cu ajutor. TriSense se plasează în acest cadru ca \emph{mediator}: robotul nu înlocuiește terapeutul, dar oferă scaffolding consecvent — instrucțiuni scurte, același ritual de salut, feedback fără pedeapsă, nivele de dificultate crescătoare la construcții, dialog ghidat în povestea co-construită. Predictibilitatea robotului reduce încărcătura socială ambiguă, astfel încât copilul să poată lucra în zona proximală: face el pasul, dar nu rămâne singur cu confuzia.
+
+Cele două perspective nu se exclud. Piaget explică de ce contează materialul concret și eșecul constructiv (construcția care nu se potrivește); Vygotsky explică de ce contează partenerul, vocea și structura socială a jocului. TriSense le combină: LEGO ca mediu de acțiune, robotul ca partener de scaffolding, adultul din cameră ca reper uman — în linie cu ideea, documentată și în literatura despre roboți, că prezența unui mediator mecanic poate facilita, nu bloca, interacțiunea cu oamenii. Menținem aceeași limită ca în restul capitolului: activitățile sunt exerciții de suport inspirate din teorie, nu evaluări de stadiu piagetian sau intervenții clinice validate în sens strict.
+
+\subsection{Funcții executive, consistență robotică și rolul terapeutului uman}
+\label{sec:executive-terapeut}
+
+În cazul ADHD, dificultățile centrale țin de funcțiile executive: control inhibitor, memorie de lucru și flexibilitate cognitivă \cite{diamond2013}. Diamond arată că aceste trei funcții de bază se pot antrena prin exerciții repetate, gradate ca dificultate — exact tipul de activitate pe care un sistem robotic îl poate administra cu o consecvență pe care un om nu o poate garanta sesiune după sesiune. Jocuri precum Stop \& Go (control inhibitor), estimarea timpului sau construcția după model solicită aceleași competențe, într-un cadru ludic, cu reguli explicite și feedback imediat.
+
+Avantajul robotului este tocmai regularitatea: aceleași instrucțiuni, același ritm, aceeași reacție la reușită sau la eșec. Limitarea este la fel de clară: robotul nu \emph{simte} oboseala copilului, nu citește nuanțele unei voci obosite sau ale unei frustrări care se acumulează înainte de meltdown, nu adaptează empatic tonul în funcție de starea afectivă a momentului. Aici intervine colaborarea cu terapeutul uman — psiholog, terapeut ocupațional sau educator specializat — care conduce sesiunea, observă semnele timpurii de suprasolicitare și decide când se continuă, când se face pauză sau când se schimbă activitatea.
+
+TriSense este gândit explicit în această logică de \emph{complementaritate}, nu de înlocuire. Robotul structurează jocul, oferă feedback consecvent și înregistrează metrici obiective (durate, încercări, reușite) pe care terapeutul le poate folosi la evaluare; terapeutul rămâne cel care aduce relația, intuiția clinică și sensibilitatea la emoțiile copilului. Definirea activităților și a constrângerilor etice din proiect a fost discutată cu Marius și Andreea Lumpan, psihoterapeuți cu experiență în practica LBT din România \cite{lumpanagerpres2025} — nu ca validare clinică a sistemului, ci ca verificare că jocurile rămân blânde, predictibile și utile într-un context ghidat de adult. Raportul de sesiune generat automat este un instrument de sprijin pentru terapeut, nu un substitut al observației directe.
+
+\subsection{Orientări psihologice și poziționarea TriSense}
+\label{sec:orientari-psihologice}
+
+Pe lângă constructivism și teoria socioculturală, designul TriSense se raportează la cele trei mari orientări istorice ale psihologiei: psihanaliza, behaviorismul și umanismul. Proiectul nu aparține unei singure școli — este deliberat eclectic. Jocurile care antrenează funcțiile executive (Stop \& Go, construcții gradate, fluență semantică) se sprijină pe logica cognitiv-comportamentală: practică repetată, feedback imediat, întărire pozitivă \cite{diamond2013}. Aceste instrumente au sens atunci când copilul este disponibil pentru sarcină și toleranța la frustrare nu este deja depășită.
+
+În schimb, modul în care abordăm suprasolicitarea senzorială și meltdown-ul (secțiunea~\ref{an:sec:meltdown}) urmează o orientare umanistă. Rogers descrie relația terapeutică ca pe un cadru de acceptare necondiționată, în care persoana nu este redusă la un set de comportamente corectabile \cite{rogers1951}. Relatările adolescenților autiști despre meltdown confirmă miza acestei poziții: episoadele sunt adesea urmate de rușine, iar presiunea, pedeapsa sau expunerea publică le prelungesc sau le agravează \cite{phung2021}. De aceea, în momentul crizei recompensele și admonestările nu au efect — iar robotul nu „sancționează” eșecul; scenariile de criză sunt stilizate, voluntare și urmate de reglare (respirație ghidată), sub supravegherea unui adult care poate simți starea copilului și adapta tonul.
+
+Tensiunea dintre antrenarea cognitivă și respectul pentru experiența subiectivă nu este un defect al proiectului, ci o alegere de design: robotul aduce consistența necesară exercițiilor structurate; terapeutul uman aduce empatia, intuiția și decizia de oprire — complementaritate deja descrisă în subsecțiunea~\ref{sec:executive-terapeut}. Nu am ales o teorie ca etichetă decorativă; am distins ce se potrivește fiecărei situații din sesiune.
+
+\section{Robotica asistivă în intervențiile pentru copii cu autism}
+
+\subsection{De ce roboți?}
+
+Întrebarea pare legitimă: dacă dificultățile copiilor cu TSA sunt de natură socială, de ce am introduce în terapie o mașină, în loc să exersăm direct interacțiunea umană? Literatura de specialitate a documentat însă un fenomen consistent: mulți copii cu autism interacționează mai ușor cu roboții decât cu oamenii, cel puțin în fazele inițiale ale intervenției.
+
+Explicația ține de natura stimulului social. Interacțiunea umană este copleșitoare informațional — fețe care se schimbă permanent, intonații variabile, reguli sociale implicite. Un robot, în schimb, este \emph{simplu, predictibil și răbdător}: repetă aceeași acțiune identic de fiecare dată, nu se plictisește, nu judecă și nu transmite semnale sociale ambigue. Dautenhahn și Werry, pionierii proiectului AURORA (unul dintre primele programe de cercetare dedicate roboților ca instrumente terapeutice pentru copii cu autism), au argumentat încă din 2004 că tocmai această simplitate controlabilă face din robot un mediator ideal: un pas intermediar între lumea predictibilă a obiectelor și lumea impredictibilă a oamenilor \cite{dautenhahn2004}.
+
+\subsection{Ce arată studiile}
+
+Domeniul s-a maturizat rapid, iar mai multe sinteze sistematice permit astăzi o imagine de ansamblu. Scassellati, Admoni și Matarić \cite{scassellati2012}, într-o trecere în revistă publicată în \emph{Annual Review of Biomedical Engineering}, documentează că în prezența roboților copiii cu TSA manifestă comportamente sociale pe care le afișează rar în alte contexte: contact vizual prelungit, atenție comună, imitație spontană și inițierea interacțiunii. La fel de important, autorii observă că aceste comportamente nu rămân direcționate exclusiv către robot — în multe studii ele se extind către adulții prezenți în încăpere, ceea ce sugerează un potențial real de transfer.
+
+Robins și colaboratorii \cite{robins2005}, lucrând cu robotul umanoid minimalist KASPAR, au arătat în studii longitudinale că expunerea repetată la un robot cu comportament simplu și repetitiv crește treptat disponibilitatea copiilor de a interacționa — întâi cu robotul, apoi cu experimentatorul uman. Robotul a funcționat, în termenii autorilor, ca \emph{mediator social}: obiectul comun de interes care face posibilă interacțiunea triadică copil–robot–adult.
+
+Kim și colaboratorii \cite{kim2013} au adus o contribuție metodologică importantă: într-un experiment controlat, copiii cu TSA au vorbit mai mult cu un adult în prezența unui robot decât în prezența unui alt adult sau a unui joc pe tabletă. Cu alte cuvinte, robotul nu doar atrage atenția copilului, ci funcționează ca întăritor („embedded reinforcer”) al comportamentului social îndreptat către oameni.
+
+Sintezele critice mai recente impun însă și prudență. Diehl și colaboratorii \cite{diehl2012} notează că multe studii din domeniu au eșantioane mici și design exploratoriu, iar Pennisi și colaboratorii \cite{pennisi2016}, într-o sinteză sistematică, confirmă rezultatele pozitive privind implicarea și reducerea comportamentelor repetitive, dar subliniază nevoia de studii clinice riguroase. Cabibihan și colaboratorii \cite{cabibihan2013} oferă o taxonomie utilă a rolurilor pe care un robot le poate juca în terapie — partener de joc, model comportamental, instrument de evaluare, mediator social — și a caracteristicilor de design care contează: aspect non-amenințător, comportament repetabil, feedback imediat. Ricks și Colton \cite{ricks2010} adaugă o observație de design relevantă pentru TriSense: roboții cu aspect mecanic, non-umanoid, sunt adesea mai bine primiți de copiii cu TSA decât cei cu aspect uman realist, care pot genera disconfort.
+
+Poziționarea TriSense față de această literatură este directă: sistemul nostru este un robot non-umanoid construit din piese LEGO (material deja familiar și pozitiv conotat pentru copil), care joacă rolul de partener de joc și mediator, administrează activități inspirate din LBT și din probele clasice de funcții executive și produce metrici obiective pentru terapeut — fără nicio pretenție de diagnostic.
+
+\subsection{Funcțiile executive și jocurile cognitive}
+
+Mai multe activități din TriSense sunt inspirate din probe consacrate în neuropsihologie, adaptate în formă de joc. Jocul „Build the Model” pornește de la \emph{Turnul din Hanoi}, o probă clasică de planificare vizuo-spațială: copilul trebuie să reproducă o structură-țintă respectând o ordine de asamblare, ceea ce solicită memoria de lucru și planificarea pas-cu-pas. „Stop \& Go” preia paradigma Go/No-Go (control inhibitor), exercițiul de estimare a timpului pornește de la probele de percepție temporală (legate de planificare și de impulsivitate), iar „categoriile rapide” adaptează probele de fluență semantică (acces lexical). Jocurile aflate încă în stadiu de prototip preiau paradigmele N-back (actualizarea memoriei de lucru) și Stroop (inhibiția interferenței). Toate aceste funcții sunt discutate pe larg de Diamond \cite{diamond2013} ca fiind antrenabile prin practică repetată.
+
+Este esențial de subliniat statutul acestor activități: ele sunt \emph{exerciții terapeutice inspirate din procedee standard, nu teste clinice validate}. TriSense nu măsoară inteligența și nu diagnostichează — înregistrează doar indicatori de joc (durate, încercări, reușite) pe care terapeutul îi poate interpreta în context.
+
+\subsection{Rutina și predictibilitatea: Social Stories}
+
+Un ultim reper conceptual vine din metoda \emph{Social Stories} a lui Carol Gray \cite{gray2010}: scenarii sociale scurte, formulate identic la fiecare repetare, care pregătesc copilul pentru situații sociale concrete. TriSense aplică același principiu în structura sesiunilor — salutul, formulele de încurajare și ritualul de încheiere folosesc formulări consecvente, astfel încât copilul să știe mereu la ce să se aștepte.
+
+\section{Sisteme cyber-fizice}
+
+Un \emph{sistem cyber-fizic} (Cyber-Physical System, CPS) integrează strâns calculul, comunicația și procesele fizice: senzorii și actuatorii interacționează cu mediul, în timp ce componenta de calcul — adesea distribuită pe mai multe dispozitive — monitorizează și controlează aceste procese în buclă închisă \cite{lee2008}. Lee subliniază că provocarea centrală a unui CPS nu este puterea de calcul, ci \emph{orchestrarea}: sincronizarea în timp real a unor componente diferite, cu cerințe de fiabilitate pe care software-ul clasic de birou nu le are.
+
+TriSense este un CPS în sens deplin. Bucla sa de control percepe starea fizică a lumii (vocea copilului prin microfon, construcția LEGO prin cameră, apăsările de buton de pe hub), o procesează printr-o componentă de calcul distribuită pe trei dispozitive plus servicii cloud și o transformă înapoi în acțiuni fizice: mișcări ale brațelor, animații pe matricea de LED-uri, vorbire sintetizată redată pe difuzor. Caracterul \emph{adaptiv} vine din stratul de inteligență artificială: răspunsurile verbale se generează dinamic în funcție de contextul conversației și de starea jocului, iar verificarea construcțiilor tolerează variații de poziționare, iluminare și perspectivă.
+
+\section{Platformele hardware utilizate}
+
+\subsection{LEGO SPIKE Prime și firmware-ul Pybricks}
+
+LEGO\textsuperscript{®} SPIKE\texttrademark{} Prime este o platformă educațională construită în jurul unui hub programabil cu șase porturi de motoare/senzori, o matrice de LED-uri $5\times5$, butoane fizice și baterie proprie. Alegerea ei nu a fost întâmplătoare: pentru un copil care face deja terapie LEGO, un robot construit din LEGO nu este un obiect străin, ci o extensie a unui univers familiar.
+
+În locul firmware-ului oficial am folosit \emph{Pybricks} \cite{pybricks}, un firmware open-source bazat pe MicroPython. Decizia a fost dictată de două nevoi pe care mediul oficial nu le acoperă: control fin, neîntrerupt, asupra motoarelor și matricei de LED-uri, și — esențial pentru arhitectura noastră — acces programabil la portul LPF2, prin care hub-ul poate comunica cu dispozitive externe ca și cum ar fi senzori LEGO.
+
+\subsection{Placa LMS-ESP32}
+
+LMS-ESP32 \cite{antonsmindstorms} este o placă de extensie construită în jurul microcontrolerului ESP32, proiectată specific pentru a se conecta la portul LPF2 al hub-urilor LEGO. Din punctul de vedere al hub-ului, placa se prezintă ca un senzor LEGO obișnuit; în realitate, ea aduce tot ce îi lipsește hub-ului: conectivitate Wi-Fi, interfață audio I2S și putere de calcul suplimentară. Pe placă rulează MicroPython \cite{micropython}, iar în TriSense ea joacă rolul de „trunchi cerebral”: leagă corpul LEGO de rețea și de creierul de pe PC.
+
+Lanțul audio al robotului este construit în jurul acestei plăci: un amplificator MAX98357A cu difuzor de 4~$\Omega$ pentru voce (interfața I2S pe pinii GPIO 14/15/26, cu activare pe GPIO~32) și un microfon digital INMP441 (date pe GPIO~33, cu ceasurile partajate cu amplificatorul).
+
+\subsection{Modulul ESP32-CAM}
+
+Pentru componenta de vedere artificială am folosit un modul ESP32-CAM AI-Thinker — o cameră de cost foarte redus (sub 50 de lei) cu server HTTP propriu. Modulul este alimentat din placa LMS-ESP32, dar comunică independent prin Wi-Fi: PC-ul îi cere o imagine JPEG printr-o simplă cerere HTTP la endpoint-ul \texttt{/capture}. Această decuplare s-a dovedit valoroasă în practică — camera poate fi poziționată liber față de robot, oriunde încadrează bine zona de construcție.
+
+\section{Protocoale și tehnologii de comunicație}
+
+\subsection{MQTT}
+
+MQTT \cite{mqtt} este un protocol de mesagerie de tip \emph{publish/subscribe} proiectat pentru dispozitive cu resurse limitate — exact profilul plăcii ESP32. Un broker central (în implementarea noastră, Mosquitto, rulat local pe PC) intermediază mesajele: fiecare participant publică pe topicuri și se abonează la topicurile care îl interesează, fără să cunoască direct ceilalți participanți. Această decuplare simplifică mult arhitectura: creierul de pe PC, robotul și puntea de viziune comunică toate prin broker, iar căderea temporară a unei componente nu blochează restul sistemului.
+
+\subsection{LPF2 și biblioteca PupRemote}
+
+LPF2 (LEGO Power Functions 2) este protocolul serial proprietar prin care hub-urile LEGO comunică cu senzorii. Biblioteca \emph{PupRemote} \cite{pupremote} construiește peste LPF2 un mecanism de „comenzi cu nume”: definești pe ambele capete un canal cu un format de date, iar biblioteca se ocupă de serializare și de handshake-ul de senzor. TriSense folosește două canale: \texttt{cmd}, prin care ESP32 trimite hub-ului coduri numerice de acțiune, și \texttt{btn}, adăugat în sens invers, prin care hub-ul raportează apăsările butoanelor fizice.
+
+\subsection{Streaming audio prin TCP}
+
+MQTT este potrivit pentru mesaje scurte, nu pentru fluxuri audio. Pentru voce am folosit conexiuni TCP directe între PC și ESP32: pe portul 8765 robotul trimite către PC audio brut de la microfon (pentru transcriere), iar pe portul 8766 PC-ul trimite către robot vocea sintetizată (PCM mono, 16 biți, 24~kHz), redată pe difuzor prin I2S. Alegerea formatului PCM necomprimat a fost deliberată: decodarea unui format comprimat ar fi depășit resursele plăcii, în timp ce lățimea de bandă a unei rețele locale acoperă fără probleme debitul de 48~KB/s al fluxului.
+
+\section{Serviciile de inteligență artificială}
+
+\subsection{Modele de limbaj de mari dimensiuni}
+
+Componenta conversațională folosește modelele Google Gemini \cite{gemini}. Comportamentul modelului este constrâns printr-un \emph{system prompt} dedicat, care impune un ton cald și răbdător, propoziții scurte, vocabular adecvat vârstei și — important în context terapeutic — evitarea oricăror formulări care ar putea suna a evaluare sau critică. Tot prin prompt, modelul este instruit să recunoască intențiile de joc exprimate liber de copil („I want to build something!”) și să le semnaleze sistemului.
+
+\subsection{Transcrierea vorbirii și sinteza vocală}
+
+Lanțul vocal complet are trei verigi. Transcrierea (speech-to-text) se face tot cu Gemini, căruia i se trimite înregistrarea audio împreună cu instrucțiuni de transcriere fidelă. Generarea răspunsului revine modelului conversațional. Sinteza vocală (text-to-speech) folosește două motoare cu comutare automată: Google Cloud TTS cu vocea neurală \texttt{en-US-Neural2-F} ca motor principal și \texttt{edge-tts} cu vocea \texttt{en-US-JennyNeural} ca alternativă — ambele producând voci feminine calde, alese deliberat pentru contextul interacțiunii cu copii.
+
+\subsection{Vedere artificială multimodală}
+
+Pentru verificarea construcțiilor LEGO am ales o abordare care merită o justificare: în loc să antrenăm un clasificator de imagini dedicat (care ar fi cerut sute de fotografii etichetate pentru fiecare model și ar fi fost rigid la schimbarea modelelor), folosim modelul multimodal Gemini Vision în regim \emph{zero-shot}. Modelul primește fotografia construcției și o descriere în limbaj natural a țintei („un turn din patru cuburi portocalii 2$\times$4, așezate unul peste altul”) și întoarce un verdict structurat: potrivire da/nu, scor de încredere și o descriere a ceea ce vede. Adăugarea unui model nou în joc se reduce astfel la scrierea unui paragraf descriptiv — fără date de antrenare, fără reantrenare.

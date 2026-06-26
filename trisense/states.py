@@ -18,6 +18,11 @@ class RobotState(Enum):
     GUESS_EMOTION = auto()  # Act. 6: asteapta ghicirea emotiei
     FOLLOW_PATTERN = auto() # Act. 7: asteapta replicarea pasului curent
     BUILD_MODEL = auto()    # Build the Model (Turnul lui Hanoi): asteapta verificarea CAM
+    STOP_GO = auto()        # Act. 3.1: Go / No-Go simplificat
+    CATEGORY_FLUENCY = auto()  # Act. 3.12: numește cuvinte din categorie
+    TIME_ESTIMATE = auto()  # Act. 3.16: estimare durată
+    DANCE_WITH_ME = auto()  # Act. 2.3: copil imită dansul robotului
+    CO_CONSTRUCTED_STORY = auto()  # Poveste co-construită (turn-taking + Gemini)
 
 
 # Semantica ID (HuskyLens Object Classification pe ESP32; clase invatate pe senzor):

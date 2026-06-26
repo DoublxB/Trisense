@@ -20,7 +20,7 @@ import wave
 logger = logging.getLogger(__name__)
 
 _RO_VOICE_HINTS = ("andrei", "romanian", "romana", "română", "ro-ro", "m1048")
-_EDGE_TTS_DEFAULT_VOICE = "en-US-JennyNeural"
+_EDGE_TTS_DEFAULT_VOICE = "ro-RO-AlinaNeural"
 
 
 def _pick_romanian_voice(engine) -> None:

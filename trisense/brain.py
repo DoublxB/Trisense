@@ -21,7 +21,14 @@ from trisense.cloud_tts import (
     cloud_tts_ready,
     synthesize_linear16_pcm,
 )
-from trisense.cognitive_games import build_model_level
+from trisense.cognitive_games import (
+    CO_STORY_OPENINGS,
+    CATEGORY_WORDS,
+    analyze_co_story_turn,
+    build_model_level,
+    count_category_words,
+    parse_seconds_estimate,
+)
 from trisense.config import (
     ESP_AUDIO_TCP_PORT,
     ESP_SPEAK_MAX_CHARS,
@@ -31,6 +38,7 @@ from trisense.config import (
     VOICE_TCP_PORT,
     vision_id_to_action_map,
 )
+from trisense.dance_music import DANCE_DURATION_S, send_dance_music_to_esp
 from trisense.memory_store import MemoryStore
 from trisense.metrics_logger import MetricsLogger
 from trisense.mqtt_layer import MqttBrainClient
@@ -38,6 +46,16 @@ from trisense.states import RobotState
 from trisense.tts_engine import TTSEngine
 
 logger = logging.getLogger(__name__)
+
+_CAT_LABEL_RO = {
+    "animals": "animale",
+    "colors": "culori",
+    "fruits": "fructe",
+}
+
+
+def _cat_label_ro(category: str) -> str:
+    return _CAT_LABEL_RO.get(category, category)
 
 
 def _voice_keyword_compact(raw: str) -> str:
@@ -60,17 +78,17 @@ class TriSenseBrain:
 
     # Act. 7 — pasii hardcodati pentru demo (action, voce anunt, cmd_hub)
     _PATTERN_STEPS: list[tuple[str, str, int]] = [
-        ("left_arm",  "Left arm up!",  3),
-        ("right_arm", "Right arm up!", 4),
-        ("breathe_in", "Breathe in!",  5),
+        ("left_arm",  "Brațul stâng sus!",  3),
+        ("right_arm", "Brațul drept sus!", 4),
+        ("breathe_in", "Inspiră!",  5),
     ]
 
-    _EMOTION_LABEL_EN = {
-        "happy": "happy",
-        "sad": "sad",
-        "surprised": "surprised",
-        "angry": "angry",
-        "meltdown": "meltdown",
+    _EMOTION_LABEL_RO = {
+        "happy": "fericit",
+        "sad": "trist",
+        "surprised": "surpris",
+        "angry": "furios",
+        "meltdown": "criză",
     }
 
     def __init__(self) -> None:
@@ -106,6 +124,42 @@ class TriSenseBrain:
         # Default 0.4 — tolerant la variante de forma (nivel 3 robot da max ~0.4 cu prag strict).
         self._build_match_threshold: float = float(
             (os.environ.get("BUILD_MODEL_MATCH_THRESHOLD") or "0.4").strip() or "0.4"
+        )
+        self._current_activity: str = ""
+        # Stop & Go
+        self._sg_trials: list[str] = []
+        self._sg_index: int = 0
+        self._sg_correct: int = 0
+        self._sg_false_alarms: int = 0
+        # Category fluency
+        self._cat_category: str = ""
+        # Time estimate
+        self._te_target_s: float = 5.0
+        self._te_start: float = 0.0
+        self._te_round: int = 0
+        # Co-constructed story
+        self._co_story_lines: list[str] = []
+        self._co_story_turn: int = 0
+        self._co_story_vocab: set[str] = set()
+        self._co_story_max_turns: int = 4
+
+    def _log_activity(
+        self,
+        stare: str,
+        *,
+        activity: str = "",
+        id_vazut: int = 0,
+        timp_reactie_ms: Optional[float] = None,
+        extra: Optional[dict[str, Any]] = None,
+    ) -> None:
+        name = self._child_name or self.memory.get_child_name() or "friend"
+        self.metrics.log(
+            nume_copil=name,
+            id_vazut=id_vazut,
+            timp_reactie_ms=timp_reactie_ms,
+            stare=stare,
+            activity=activity or stare,
+            extra=extra,
         )
 
     def _publish_listen(self, *, duration_ms: int = 10000) -> bool:
@@ -305,9 +359,6 @@ class TriSenseBrain:
         normalized = "".join(ch.lower() if ch.isalnum() else " " for ch in transcript)
         words = set(normalized.split())
 
-        if {"dance", "danseaza", "danseaz\u0103", "danseaz", "danseze", "dancing"} & words:
-            return "dance"
-
         repose_kw = {"repose", "home", "reset", "reposition"}
         ro_repose = {"reposter", "reposeste"}
         if repose_kw & words or ro_repose & words:
@@ -321,6 +372,15 @@ class TriSenseBrain:
             .replace("ș", "s")
             .replace("ț", "t")
         )
+        cq = _voice_keyword_compact(transcript)
+
+        if "dance with me" in bl or "danseaza cu mine" in bl_ascii or "dans cu mine" in bl_ascii:
+            return "dance_with_me"
+        if cq and ("dancewithme" in cq or "danseazacumine" in cq):
+            return "dance_with_me"
+        if {"dance", "danseaza", "danseaz", "danseze", "dancing"} & words and "with" not in words:
+            return "dance"
+
         if (
             "left arm" in bl
             or "left hand" in bl
@@ -406,7 +466,6 @@ class TriSenseBrain:
         ):
             return "backward"
 
-        cq = _voice_keyword_compact(transcript)
         if cq and any(
             tag in cq
             for tag in (
@@ -466,6 +525,56 @@ class TriSenseBrain:
         if cq and ("buildthemodel" in cq or "buildmodel" in cq or "buildthetower" in cq or "towergame" in cq):
             return "build_model"
 
+        if cq and ("stopandgo" in cq or "stopgo" in cq or "stopsigo" in cq):
+            return "stop_go"
+        if "stop and go" in bl or "stop go" in bl or "stopgo" in bl_ascii or "stop si go" in bl_ascii or "stop si mergi" in bl_ascii or "joc stop" in bl_ascii:
+            return "stop_go"
+
+        if "category game" in bl or "name animals" in bl or "name colors" in bl or "name fruits" in bl:
+            return "category_fluency"
+        if cq and ("categorygame" in cq or "nameanimals" in cq or "namecolors" in cq):
+            return "category_fluency"
+        if "categorie" in bl_ascii and ("joc" in bl_ascii or "game" in bl):
+            return "category_fluency"
+
+        if (
+            "time game" in bl
+            or "time estimation" in bl
+            or "time estimate" in bl
+            or "play time estimate" in bl
+            or "estimate time" in bl
+            or ("time" in words and "estimate" in words)
+        ):
+            return "time_estimate"
+        if cq and (
+            "timegame" in cq
+            or "timeestimation" in cq
+            or "timeestimate" in cq
+            or "playtimeestimate" in cq
+            or "estimatetimp" in cq
+        ):
+            return "time_estimate"
+        if "estimeaza timpul" in bl_ascii or "estimeaza timp" in bl_ascii:
+            return "time_estimate"
+
+        if (
+            "tell a story" in bl
+            or "make a story" in bl
+            or "co story" in bl
+            or "let's tell a story" in bl
+            or "lets tell a story" in bl
+        ):
+            return "co_story"
+        if cq and ("tellastory" in cq or "makeastory" in cq or "costory" in cq or "poveste" in cq):
+            return "co_story"
+        if "poveste" in bl_ascii and ("spune" in bl_ascii or "facem" in bl_ascii or "hai" in bl_ascii):
+            return "co_story"
+
+        if "session report" in bl or "end session" in bl or "end the session" in bl:
+            return "session_report"
+        if cq and ("sessionreport" in cq or "endsession" in cq):
+            return "session_report"
+
         # Demo juriu: salut fix + braț, pivot dreapta, braț, pivot stânga
         if "hello to the judges" in bl or "salut juriu" in bl_ascii or "salut juriului" in bl_ascii:
             return "judges_demo"
@@ -513,11 +622,31 @@ class TriSenseBrain:
             self._validate_pattern_step(t, name, robot_only=robot_only, esp_ip=esp_ip)
             return
 
+        if self.state == RobotState.STOP_GO:
+            self._validate_stop_go_response(t, name, robot_only=robot_only, esp_ip=esp_ip)
+            return
+
+        if self.state == RobotState.CATEGORY_FLUENCY:
+            self._validate_category_fluency(t, name, robot_only=robot_only, esp_ip=esp_ip)
+            return
+
+        if self.state == RobotState.TIME_ESTIMATE:
+            self._validate_time_estimate(t, name, robot_only=robot_only, esp_ip=esp_ip)
+            return
+
+        if self.state == RobotState.CO_CONSTRUCTED_STORY:
+            self._validate_co_story_turn(t, name, robot_only=robot_only, esp_ip=esp_ip)
+            return
+
+        if self.state == RobotState.DANCE_WITH_ME:
+            self._validate_dance_with_me(t, name, robot_only=robot_only, esp_ip=esp_ip)
+            return
+
         # Build the Model: ignora vocea in timp ce copilul construieste (nu LLM, nu confuzie).
         if self.state == RobotState.BUILD_MODEL:
             logger.info("Build the Model: transcript ignorat in timp ce asteptam butonul dreapta: %s", t[:80])
             self._say(
-                f"Keep building, {name}! Press the right button when you're ready!",
+                f"Continuă să construiești, {name}! Apasă butonul din dreapta când ești gata!",
                 robot_only=robot_only,
                 esp_ip=esp_ip,
             )
@@ -531,22 +660,28 @@ class TriSenseBrain:
                     action,
                 )
             voice = {
-                "dance": f"Let's dance, {name}!",
-                "repose": f"Relaxing pose, {name}.",
-                "left_arm": f"Left arm up, {name}!",
-                "right_arm": f"Right arm up, {name}!",
-                "breathe_in": f"Breathe in, {name}.",
-                "breathe_out": f"Breathe out, {name}.",
-                "breathing_show": f"Watch my arms, lights and sounds — two breaths, {name}.",
-                "forward": f"Moving forward, {name}!",
-                "backward": f"Moving back.",
-                "turn_left": f"Turning left.",
-                "turn_right": f"Turning right.",
-                "guess_emotion": f"Let's play Guess the Emotion, {name}!",
-                "follow_pattern": f"Let's play Follow the Pattern, {name}!",
-                "build_model": f"Let's play Build the Model, {name}!",
-                "emotion_meltdown": f"Okay, {name}, the meltdown emotion!",
-            }.get(action, f"Okay, {name}!")
+                "dance": f"Hai să dansăm, {name}!",
+                "repose": f"Poză de relaxare, {name}.",
+                "left_arm": f"Brațul stâng sus, {name}!",
+                "right_arm": f"Brațul drept sus, {name}!",
+                "breathe_in": f"Inspiră, {name}.",
+                "breathe_out": f"Expiră, {name}.",
+                "breathing_show": f"Privește brațele, luminile și sunetele mele — două respirații, {name}.",
+                "forward": f"Merg înainte, {name}!",
+                "backward": f"Merg înapoi.",
+                "turn_left": f"Viresc la stânga.",
+                "turn_right": f"Viresc la dreapta.",
+                "guess_emotion": f"Hai să jucăm Ghicește emoția, {name}!",
+                "follow_pattern": f"Hai să jucăm Urmează tiparul, {name}!",
+                "build_model": f"Hai să jucăm Construiește modelul, {name}!",
+                "emotion_meltdown": f"Bine, {name}, emoția de criză!",
+                "stop_go": f"Hai să jucăm Stop și Go, {name}!",
+                "category_fluency": f"Hai să jucăm jocul categoriilor, {name}!",
+                "time_estimate": f"Hai să jucăm jocul timpului, {name}!",
+                "co_story": f"Hai să facem o poveste împreună, {name}!",
+                "dance_with_me": f"Hai să dansăm împreună, {name}!",
+                "session_report": f"Bine {name}, pregătesc raportul sesiunii.",
+            }.get(action, f"Bine, {name}!")
             # Act. 6 — Guess the Emotion
             if action == "guess_emotion":
                 self._start_guess_emotion(name, robot_only=robot_only, esp_ip=esp_ip)
@@ -561,6 +696,24 @@ class TriSenseBrain:
                 return
             if action == "judges_demo":
                 self._run_judges_demo(robot_only=robot_only, esp_ip=esp_ip)
+                return
+            if action == "stop_go":
+                self._start_stop_go(name, robot_only=robot_only, esp_ip=esp_ip)
+                return
+            if action == "category_fluency":
+                self._start_category_fluency(name, robot_only=robot_only, esp_ip=esp_ip)
+                return
+            if action == "time_estimate":
+                self._start_time_estimate(name, robot_only=robot_only, esp_ip=esp_ip)
+                return
+            if action == "co_story":
+                self._start_co_story(name, robot_only=robot_only, esp_ip=esp_ip)
+                return
+            if action == "dance_with_me":
+                self._start_dance_with_me(name, robot_only=robot_only, esp_ip=esp_ip)
+                return
+            if action == "session_report":
+                self._run_session_report(name, robot_only=robot_only, esp_ip=esp_ip)
                 return
             if action == "breathing_show":
                 vtrim = (voice or "").strip()
@@ -610,15 +763,15 @@ class TriSenseBrain:
             return
 
         prompt = (
-            f"The child said this through the microphone (transcript): {t}. "
-            "Reply very briefly, friendly, in English, as TriSense."
+            f"Copilul a spus asta prin microfon (transcriere): {t}. "
+            "Răspunde foarte pe scurt, prietenos, în română, ca TriSense."
         )
-        text = self.ai.reply(prompt, name) if self.ai.available else f"I heard: {t}"
+        text = self.ai.reply(prompt, name) if self.ai.available else f"Am auzit: {t}"
         text = (text or "").strip().strip("\"'")
         if text.count("\"") % 2 == 1:
             text = text.replace("\"", "")
         if len(text) < 8:
-            text = f"I heard you, {name}."
+            text = f"Te-am auzit, {name}."
         logger.info("Voce TCP raspuns TriSense: %s", (text or "")[:500])
         delivered = self._announce(text, robot_only=robot_only, esp_ip=esp_ip)
         if delivered:
@@ -702,7 +855,7 @@ class TriSenseBrain:
         logger.info("Act.6 [1/4]: emotie aleasa = %s", self._current_emotion)
         self._current_activity = "GUESS_EMOTION"
 
-        intro = f"Watch carefully, {name}!"
+        intro = f"Privește cu atenție, {name}!"
         logger.info("Act.6 [2/4]: redau intro pe robot...")
         self._say(intro, robot_only=robot_only, esp_ip=esp_ip, wait=True)
         time.sleep(0.6)
@@ -720,8 +873,8 @@ class TriSenseBrain:
         time.sleep(0.8)
 
         question = (
-            f"What emotion was I showing, {name}? "
-            "Happy, sad, surprised, angry, or meltdown?"
+            f"Ce emoție arătam, {name}? "
+            "Fericit, trist, surprins, furios sau criză?"
         )
         logger.info("Act.6 [4/4]: redau intrebarea pe robot...")
         self._say(question, robot_only=robot_only, esp_ip=esp_ip, wait=True)
@@ -749,9 +902,9 @@ class TriSenseBrain:
             detected = "meltdown"
 
         expected = self._current_emotion or "happy"
-        exp_en = self._EMOTION_LABEL_EN.get(expected, expected)
+        exp_en = self._EMOTION_LABEL_RO.get(expected, expected)
         if detected == expected:
-            response = f"Amazing, {name}! Correct — I was {exp_en}!"
+            response = f"Minunat, {name}! Corect — eram {exp_en}!"
             self._say(response, robot_only=robot_only, esp_ip=esp_ip)
             time.sleep(0.5)
             self._publish({"action": "dance"})
@@ -762,11 +915,11 @@ class TriSenseBrain:
         elif detected:
             det_en = self._EMOTION_LABEL_EN.get(detected, detected)
             response = (
-                f"Not quite, {name}. I was actually {exp_en}. "
-                f"But great try — you said {det_en}!"
+                f"Nu chiar, {name}. De fapt eram {exp_en}. "
+                f"Dar bravo — ai spus {det_en}!"
             )
         else:
-            response = f"I didn't quite hear you. I was {exp_en}! Try again next time!"
+            response = f"Nu te-am auzit bine. Eram {exp_en}! Încearcă data viitoare!"
 
         self._say(response, robot_only=robot_only, esp_ip=esp_ip)
         self.state = RobotState.SELECTIE_JOC
@@ -784,18 +937,18 @@ class TriSenseBrain:
         self._pattern_sequence = [s[0] for s in steps]
         self._pattern_step = 0
 
-        intro = f"Watch my pattern, {name}! Three moves!"
+        intro = f"Privește tiparul meu, {name}! Trei mișcări!"
         self._say(intro, robot_only=robot_only, esp_ip=esp_ip)
         time.sleep(0.5)
 
         for i, (action, label, _cmd) in enumerate(steps):
-            phrase = f"Step {i + 1}: {label}"
+            phrase = f"Pasul {i + 1}: {label}"
             self._say(phrase, robot_only=robot_only, esp_ip=esp_ip)
             time.sleep(0.5)
             self._publish({"action": action})
             time.sleep(3.5)
 
-        ask = f"Your turn! Step 1?"
+        ask = f"Rândul tău! Pasul 1?"
         self._say(ask, robot_only=robot_only, esp_ip=esp_ip)
         # Auto-listen la inceputul secventei (pasul 1), fara trigger manual.
         self._publish_listen(duration_ms=10000)
@@ -815,7 +968,7 @@ class TriSenseBrain:
             time.sleep(2.5)
             self._pattern_step += 1
             if self._pattern_step >= total:
-                response = f"Perfect, {name}! Wonderful!"
+                response = f"Perfect, {name}! Minunat!"
                 self._say(response, robot_only=robot_only, esp_ip=esp_ip)
                 time.sleep(0.5)
                 self._publish({"action": "dance"})
@@ -828,7 +981,7 @@ class TriSenseBrain:
                     (s[1] for s in self._PATTERN_STEPS if s[0] == next_action),
                     next_action.replace("_", " "),
                 )
-                response = f"Correct! Step {self._pattern_step + 1}: {step_label}?"
+                response = f"Corect! Pasul {self._pattern_step + 1}: {step_label}?"
                 self._say(response, robot_only=robot_only, esp_ip=esp_ip)
                 # Auto-listen dupa intrebarea pentru pasul urmator.
                 self._publish_listen(duration_ms=10000)
@@ -838,11 +991,11 @@ class TriSenseBrain:
                     (s[1] for s in self._PATTERN_STEPS if s[0] == expected), expected.replace("_", " ")
                 )
                 if action:
-                    response = f"Not quite! Step {self._pattern_step + 1} is {exp_label}. Try again!"
+                    response = f"Nu chiar! Pasul {self._pattern_step + 1} este {exp_label}. Încearcă din nou!"
                 else:
-                    response = f"I didn't understand. Step {self._pattern_step + 1} is {exp_label}?"
+                    response = f"Nu am înțeles. Pasul {self._pattern_step + 1} este {exp_label}?"
             else:
-                response = f"Something went wrong. Let's start over!"
+                response = f"Ceva n-a mers bine. Hai să o luăm de la capăt!"
                 self.state = RobotState.SELECTIE_JOC
                 self._pattern_step = 0
                 self._pattern_sequence = []
@@ -858,16 +1011,16 @@ class TriSenseBrain:
 
     _BUILD_INSTRUCTIONS = {
         "tower": (
-            "Stack four orange bricks on top of each other to make a tall tower!"
+            "Pune patru cărămizi portocalii una peste alta ca să faci un turn înalt!"
         ),
         "pyramid": (
-            "Build a blue pyramid! Put two bricks side by side at the bottom, "
-            "one brick in the middle, and one small brick on top!"
+            "Construiește o piramidă albastră! Două cărămizi jos, una la mijloc, "
+            "și una mică sus!"
         ),
         "robot": (
-            "Build the black robot! Two bricks stacked for the base, "
-            "a small brick on top, then a long brick for the arms, "
-            "and a small brick as the head!"
+            "Construiește robotul negru! Două cărămizi la bază, "
+            "una mică deasupra, apoi o cărămidă lungă pentru brațe, "
+            "și una mică ca cap!"
         ),
     }
 
@@ -919,12 +1072,12 @@ class TriSenseBrain:
         time.sleep(0.4)
 
         # 3) Anunta sarcina: copilul construieste, apoi apasa butonul DREAPTA cand e gata.
-        instruction = self._BUILD_INSTRUCTIONS.get(shape, "Copy the model on my screen with LEGO bricks!")
-        intro = f"Look at my screen, {name}! {instruction}"
+        instruction = self._BUILD_INSTRUCTIONS.get(shape, "Copiază modelul de pe ecran cu cărămizi LEGO!")
+        intro = f"Privește ecranul meu, {name}! {instruction}"
         self._say(intro, robot_only=robot_only, esp_ip=esp_ip, wait=True)
         time.sleep(0.3)
         self._say(
-            "When you finish, press the right button on me and I'll check it!",
+            "Când termini, apasă butonul din dreapta și verific!",
             robot_only=robot_only,
             esp_ip=esp_ip,
             wait=True,
@@ -969,7 +1122,7 @@ class TriSenseBrain:
         logger.warning("Build the Model: timeout asteptand butonul/rezultatul CAM.")
         self._clear_build_context()
         self._say(
-            f"No worries, {name}! Tell me when you want to build again!",
+            f"Nicio problemă, {name}! Spune-mi când vrei să construim din nou!",
             robot_only=True,
             esp_ip=esp_ip,
         )
@@ -1020,7 +1173,7 @@ class TriSenseBrain:
         self._clear_build_context()
 
         if success:
-            self._say(f"Yes! Great building, {name}! High five!", robot_only=True, esp_ip=self._last_esp_ip)
+            self._say(f"Da! Super construcție, {name}! Bate palma!", robot_only=True, esp_ip=self._last_esp_ip)
             time.sleep(0.4)
             self._publish({"action": "right_arm"})
             time.sleep(2.0)
@@ -1030,7 +1183,7 @@ class TriSenseBrain:
             self._build_attempts = 0
         else:
             self._say(
-                f"Almost, {name}! That was tricky. We can try the same model again!",
+                f"Aproape, {name}! A fost greu. Putem încerca același model din nou!",
                 robot_only=True,
                 esp_ip=self._last_esp_ip,
             )
@@ -1038,16 +1191,407 @@ class TriSenseBrain:
         self.state = RobotState.SELECTIE_JOC
         self._build_start = None
 
+    # ------------------------------------------------------------------
+    # Act. 3.1 — Stop & Go
+    # ------------------------------------------------------------------
+
+    _SG_NUM_TRIALS = 6
+    _SG_LISTEN_MS = 4500
+    _SG_FREEZE_TIMEOUT = 5.5
+
+    def _start_stop_go(self, name: str, *, robot_only: bool, esp_ip: Optional[str]) -> None:
+        go_n = self._SG_NUM_TRIALS // 2
+        trials = ["go"] * go_n + ["freeze"] * (self._SG_NUM_TRIALS - go_n)
+        random.shuffle(trials)
+        self._sg_trials = trials
+        self._sg_index = 0
+        self._sg_correct = 0
+        self._sg_false_alarms = 0
+        self._current_activity = "STOP_GO"
+        self.state = RobotState.STOP_GO
+
+        rules = (
+            f"Ascultă, {name}! Când vezi 1, spune dansează! "
+            f"Când vezi 0, stai nemișcat și nu spune nimic!"
+        )
+        self._say(rules, robot_only=robot_only, esp_ip=esp_ip, wait=True)
+        time.sleep(0.4)
+        self._sg_run_trial(name, robot_only=robot_only, esp_ip=esp_ip)
+
+    def _sg_run_trial(self, name: str, *, robot_only: bool, esp_ip: Optional[str]) -> None:
+        if self._sg_index >= len(self._sg_trials):
+            self._sg_finish(name, robot_only=robot_only, esp_ip=esp_ip)
+            return
+        trial = self._sg_trials[self._sg_index]
+        if trial == "go":
+            self._publish({"action": "stop_go_go"})
+            time.sleep(3.8)
+            self._say("Mergi! Dansează!", robot_only=robot_only, esp_ip=esp_ip, wait=True)
+            self._publish_listen(duration_ms=self._SG_LISTEN_MS)
+        else:
+            self._publish({"action": "stop_go_freeze"})
+            time.sleep(3.8)
+            self._say("Stop! Stai nemișcat!", robot_only=robot_only, esp_ip=esp_ip, wait=True)
+            self._publish_listen(duration_ms=int(self._SG_FREEZE_TIMEOUT * 1000))
+
+    def _validate_stop_go_response(
+        self, transcript: str, name: str, *, robot_only: bool, esp_ip: Optional[str]
+    ) -> None:
+        if self._sg_index >= len(self._sg_trials):
+            return
+        trial = self._sg_trials[self._sg_index]
+        bl = transcript.lower()
+        said_dance = any(k in bl for k in ("dance", "danseaza", "danseaz", "move", "go"))
+        said_freeze = any(k in bl for k in ("freeze", "stop", "still", "wait", "gata"))
+
+        correct = False
+        false_alarm = False
+        if trial == "go":
+            correct = said_dance and not said_freeze
+        else:
+            if said_dance:
+                false_alarm = True
+                correct = False
+            else:
+                correct = True
+
+        if correct:
+            self._sg_correct += 1
+        if false_alarm:
+            self._sg_false_alarms += 1
+
+        self._log_activity(
+            "STOP_GO",
+            activity="STOP_GO",
+            extra={
+                "trial": self._sg_index + 1,
+                "trial_type": trial,
+                "correct": correct,
+                "false_alarm": false_alarm,
+                "transcript": transcript[:80],
+            },
+        )
+
+        if correct:
+            self._say("Bravo!", robot_only=robot_only, esp_ip=esp_ip, wait=True)
+        elif false_alarm:
+            self._say("Ups, era timp de stop!", robot_only=robot_only, esp_ip=esp_ip, wait=True)
+        else:
+            self._say("Aproape! Continuă!", robot_only=robot_only, esp_ip=esp_ip, wait=True)
+
+        self._sg_index += 1
+        time.sleep(0.3)
+        if self._sg_index < len(self._sg_trials):
+            self._sg_run_trial(name, robot_only=robot_only, esp_ip=esp_ip)
+        else:
+            self._sg_finish(name, robot_only=robot_only, esp_ip=esp_ip)
+
+    def _sg_finish(self, name: str, *, robot_only: bool, esp_ip: Optional[str]) -> None:
+        self._publish({"action": "stop_go_end"})
+        total = len(self._sg_trials)
+        msg = f"Stop și Go gata, {name}! Ai reușit {self._sg_correct} din {total}!"
+        self._say(msg, robot_only=robot_only, esp_ip=esp_ip)
+        if self._sg_correct >= total // 2:
+            time.sleep(0.4)
+            self._publish({"action": "dance"})
+        self._sg_trials = []
+        self._sg_index = 0
+        self._current_activity = ""
+        self.state = RobotState.SELECTIE_JOC
+
+    # ------------------------------------------------------------------
+    # Act. 3.12 — Category fluency
+    # ------------------------------------------------------------------
+
+    def _start_category_fluency(self, name: str, *, robot_only: bool, esp_ip: Optional[str]) -> None:
+        cats = list(CATEGORY_WORDS.keys())
+        self._cat_category = random.choice(cats) if cats else "animals"
+        self._current_activity = "CATEGORY_FLUENCY"
+        self.state = RobotState.CATEGORY_FLUENCY
+        prompt = (
+            f"Spune cât mai multe {_cat_label_ro(self._cat_category)} poți, {name}! "
+            f"Ai treizeci de secunde. Începe!"
+        )
+        self._say(prompt, robot_only=robot_only, esp_ip=esp_ip, wait=True)
+        self._publish_listen(duration_ms=30000)
+
+    def _validate_category_fluency(
+        self, transcript: str, name: str, *, robot_only: bool, esp_ip: Optional[str]
+    ) -> None:
+        stats = count_category_words(transcript, self._cat_category)
+        valid = int(stats.get("valid_count") or 0)
+        words = stats.get("valid_words") or []
+        self._log_activity(
+            "CATEGORY_FLUENCY",
+            activity="CATEGORY_FLUENCY",
+            extra={
+                "category": self._cat_category,
+                "valid_count": valid,
+                "valid_words": words[:12],
+                "repetition_count": stats.get("repetition_count", 0),
+            },
+        )
+        if valid >= 3:
+            msg = f"Minunat, {name}! Am auzit {valid} {_cat_label_ro(self._cat_category)}: {', '.join(words[:5])}!"
+            self._publish({"action": "dance"})
+        elif valid >= 1:
+            msg = f"Bravo, {name}! Ai spus {valid}: {', '.join(words)}. Poți gândi la mai multe data viitor?"
+        else:
+            msg = f"Bună încercare, {name}! Hai să exersăm {_cat_label_ro(self._cat_category)} altă dată."
+        self._say(msg, robot_only=robot_only, esp_ip=esp_ip)
+        self._cat_category = ""
+        self._current_activity = ""
+        self.state = RobotState.SELECTIE_JOC
+
+    # ------------------------------------------------------------------
+    # Act. 3.16 — Time estimation
+    # ------------------------------------------------------------------
+
+    _TE_NUM_ROUNDS = 2
+
+    def _start_time_estimate(self, name: str, *, robot_only: bool, esp_ip: Optional[str]) -> None:
+        self._te_round = 0
+        self._current_activity = "TIME_ESTIMATE"
+        self.state = RobotState.TIME_ESTIMATE
+        intro = f"Jocul timpului, {name}! Stau liniștit. Spune stop când crezi că au trecut destule secunde."
+        self._say(intro, robot_only=robot_only, esp_ip=esp_ip, wait=True)
+        time.sleep(0.3)
+        self._te_next_round(name, robot_only=robot_only, esp_ip=esp_ip)
+
+    def _te_next_round(self, name: str, *, robot_only: bool, esp_ip: Optional[str]) -> None:
+        if self._te_round >= self._TE_NUM_ROUNDS:
+            self._te_finish(name, robot_only=robot_only, esp_ip=esp_ip)
+            return
+        self._te_target_s = float(random.randint(4, 8))
+        self._te_round += 1
+        prompt = (
+            f"Runda {self._te_round}. Închide ochii. Spune stop când crezi că "
+            f"au trecut cam {int(self._te_target_s)} secunde!"
+        )
+        self._say(prompt, robot_only=robot_only, esp_ip=esp_ip, wait=True)
+        time.sleep(0.4)
+        self._te_start = time.time()
+        self._publish_listen(duration_ms=15000)
+
+    def _validate_time_estimate(
+        self, transcript: str, name: str, *, robot_only: bool, esp_ip: Optional[str]
+    ) -> None:
+        elapsed = max(0.1, time.time() - self._te_start)
+        spoken_guess = parse_seconds_estimate(transcript)
+        # Copilul spune „stop” cand simte ca a trecut timpul — masuram elapsed.
+        estimated = spoken_guess if spoken_guess is not None else elapsed
+        error = abs(estimated - self._te_target_s)
+        correct = error <= 2.0
+        self._log_activity(
+            "TIME_ESTIMATE",
+            activity="TIME_ESTIMATE",
+            timp_reactie_ms=elapsed * 1000.0,
+            extra={
+                "trial": self._te_round,
+                "target_s": self._te_target_s,
+                "guessed_s": round(estimated, 1),
+                "elapsed_s": round(elapsed, 1),
+                "error_s": round(error, 1),
+                "correct": correct,
+            },
+        )
+        if correct:
+            msg = (
+                f"Timing bun, {name}! Te-ai oprit la cam {int(round(estimated))} secunde — "
+                f"foarte aproape de {int(self._te_target_s)}!"
+            )
+        else:
+            msg = (
+                f"Bravo! Te-ai oprit la cam {int(round(estimated))} secunde. "
+                f"Ținta era cam {int(self._te_target_s)} secunde."
+            )
+        self._say(msg, robot_only=robot_only, esp_ip=esp_ip, wait=True)
+        time.sleep(0.4)
+        self._te_next_round(name, robot_only=robot_only, esp_ip=esp_ip)
+
+    def _te_finish(self, name: str, *, robot_only: bool, esp_ip: Optional[str]) -> None:
+        self._say(f"Jocul timpului s-a terminat, {name}! Foarte bine!", robot_only=robot_only, esp_ip=esp_ip)
+        self._current_activity = ""
+        self.state = RobotState.SELECTIE_JOC
+
+    # ------------------------------------------------------------------
+    # Act. 2.3 — Dance with me
+    # ------------------------------------------------------------------
+
+    def _start_dance_with_me(self, name: str, *, robot_only: bool, esp_ip: Optional[str]) -> None:
+        self._current_activity = "DANCE_WITH_ME"
+        self.state = RobotState.DANCE_WITH_ME
+        intro = f"Privește cum dansez, {name}! Apoi e rândul tău!"
+        self._say(intro, robot_only=robot_only, esp_ip=esp_ip, wait=True)
+        time.sleep(0.3)
+        # Dans Hub intai; muzica PCM dupa (acelasi port TCP 8766 — fara suprapunere cu TTS).
+        self._publish({"action": "dance_with_me"})
+        time.sleep(10.5)
+        host = (esp_ip or self._last_esp_ip or os.environ.get("ROBOT_ESP_IP") or "").strip()
+        if host:
+            send_dance_music_to_esp(host)
+            time.sleep(DANCE_DURATION_S + 0.5)
+        time.sleep(1.2)
+        self._say(
+            f"Rândul tău, {name}! Ridică-te și dansează ca mine!",
+            robot_only=robot_only,
+            esp_ip=esp_ip,
+            wait=True,
+        )
+        self._publish_listen(duration_ms=12000)
+
+    def _validate_dance_with_me(
+        self, transcript: str, name: str, *, robot_only: bool, esp_ip: Optional[str]
+    ) -> None:
+        bl = transcript.lower()
+        danced = any(
+            k in bl
+            for k in ("dance", "danseaza", "danseaz", "moving", "jump", "wiggle", "yes", "done", "finished")
+        )
+        self._log_activity(
+            "DANCE_WITH_ME",
+            activity="DANCE_WITH_ME",
+            extra={"engagement": danced, "transcript": transcript[:80]},
+        )
+        if danced:
+            msg = f"Super dans, {name}! Te-ai mișcat cu mine!"
+            self._say(msg, robot_only=robot_only, esp_ip=esp_ip)
+            time.sleep(0.4)
+            self._publish({"action": "dance"})
+        else:
+            self._say(
+                f"E în regulă, {name}! Data viitor putem dansa mai tare împreună!",
+                robot_only=robot_only,
+                esp_ip=esp_ip,
+            )
+        self._current_activity = ""
+        self.state = RobotState.SELECTIE_JOC
+
+    # ------------------------------------------------------------------
+    # Poveste co-construită
+    # ------------------------------------------------------------------
+
+    def _start_co_story(self, name: str, *, robot_only: bool, esp_ip: Optional[str]) -> None:
+        self._co_story_lines = []
+        self._co_story_turn = 0
+        self._co_story_vocab = set()
+        self._current_activity = "CO_CONSTRUCTED_STORY"
+        self.state = RobotState.CO_CONSTRUCTED_STORY
+        opening = random.choice(CO_STORY_OPENINGS).format(name=name)
+        if self.ai.available:
+            try:
+                opening = self.ai.reply(
+                    f"Începe o poveste co-construită foarte scurtă pentru copilul {name}. "
+                    f"O singură propoziție, termină cu o întrebare pentru copil. Română.",
+                    name,
+                ).strip() or opening
+            except Exception:
+                pass
+        self._co_story_lines.append(f"TriSense: {opening}")
+        self._say(opening, robot_only=robot_only, esp_ip=esp_ip, wait=True)
+        self._publish_listen(duration_ms=15000)
+
+    def _validate_co_story_turn(
+        self, transcript: str, name: str, *, robot_only: bool, esp_ip: Optional[str]
+    ) -> None:
+        child_line = (transcript or "").strip()
+        if len(child_line) < 2:
+            self._say(
+                f"Și apoi ce se întâmplă, {name}?",
+                robot_only=robot_only,
+                esp_ip=esp_ip,
+                wait=True,
+            )
+            self._publish_listen(duration_ms=12000)
+            return
+
+        prev = ""
+        for line in reversed(self._co_story_lines):
+            if line.startswith(f"{name}:"):
+                prev = line
+                break
+
+        metrics = analyze_co_story_turn(
+            child_line,
+            story_vocab=self._co_story_vocab,
+            prev_child=prev,
+        )
+        self._co_story_vocab.update(metrics.get("new_ideas") or [])
+        self._co_story_turn += 1
+        self._co_story_lines.append(f"{name}: {child_line}")
+        self._log_activity(
+            "CO_CONSTRUCTED_STORY",
+            activity="CO_CONSTRUCTED_STORY",
+            extra={
+                "turn": self._co_story_turn,
+                "word_count": metrics.get("word_count", 0),
+                "emotion_count": metrics.get("emotion_count", 0),
+                "initiation": metrics.get("initiation", False),
+                "topic_maintained": metrics.get("topic_maintained", True),
+            },
+        )
+
+        if self._co_story_turn >= self._co_story_max_turns:
+            ending = (
+                f"Ce poveste minunată, {name}! "
+                f"M-ai ajutat să ne imaginăm ceva special azi!"
+            )
+            self._say(ending, robot_only=robot_only, esp_ip=esp_ip)
+            time.sleep(0.4)
+            self._publish({"action": "dance"})
+            self._co_story_lines = []
+            self._co_story_turn = 0
+            self._co_story_vocab = set()
+            self._current_activity = ""
+            self.state = RobotState.SELECTIE_JOC
+            return
+
+        if self.ai.available:
+            context = "\n".join(self._co_story_lines[-6:])
+            prompt = (
+                f"Co-construiește o poveste pentru copii cu {name}. Povestea până acum:\n{context}\n"
+                f"Copilul tocmai a spus: {child_line}\n"
+                "Răspunde cu O propoziție scurtă încurajatoare care continuă povestea, "
+                "apoi pune O întrebare scurtă. Doar română."
+            )
+            try:
+                next_line = self.ai.reply(prompt, name).strip()
+            except Exception:
+                next_line = f"Wow, {name}! Și apoi ce urmează?"
+        else:
+            next_line = f"Wow, {name}! Ce urmează în povestea noastră?"
+
+        self._co_story_lines.append(f"TriSense: {next_line}")
+        self._say(next_line, robot_only=robot_only, esp_ip=esp_ip, wait=True)
+        self._publish_listen(duration_ms=15000)
+
+    # ------------------------------------------------------------------
+    # Act. 3.10 — Raport sesiune terapeut
+    # ------------------------------------------------------------------
+
+    def _run_session_report(self, name: str, *, robot_only: bool, esp_ip: Optional[str]) -> None:
+        summary = self.metrics.build_session_summary()
+        path = self.metrics.write_session_report(summary)
+        if path:
+            msg = (
+                f"Raportul sesiunii e gata pentru {name}. "
+                f"L-am salvat pentru terapeut. Bravo azi!"
+            )
+            logger.info("Session report: %s", path)
+        else:
+            msg = f"Încă nu am date de sesiune, {name}. Joacă un joc, apoi cere din nou!"
+        self._say(msg, robot_only=robot_only, esp_ip=esp_ip)
+
     def _run_primul_salut(self) -> None:
         """No name in memory: ask child name and save JSON."""
         msg = (
-            "First meeting with TriSense. Tell the child you are happy to meet them. "
-            "Ask their name briefly in one friendly sentence, in English."
+            "Prima întâlnire cu TriSense. Spune copilului că ești bucuros să-l cunoști. "
+            "Întreabă-l pe scurt cum îl cheamă, într-o singură propoziție prietenoasă, în română."
         )
         if self.ai.available:
             text = self.ai.reply(msg, "friend")
         else:
-            text = "Hi! I'm TriSense. What's your name?"
+            text = "Salut! Sunt TriSense. Cum te cheamă?"
         self._announce(text)
         try:
             raw = input("Enter child name (then Enter): ").strip()
@@ -1064,10 +1608,10 @@ class TriSenseBrain:
         """ID 1 interpreted as face / greeting."""
         name = self._child_name or "friend"
         prompt = (
-            f"The child {name} was just recognized (greeting/face signal). "
-            "Reply very briefly, encouraging, in English."
+            f"Copilul {name} tocmai a fost recunoscut (semnal de salut/față). "
+            "Răspunde foarte pe scurt, încurajator, în română."
         )
-        text = self.ai.reply(prompt, name) if self.ai.available else f"Hi, {name}! Great to see you!"
+        text = self.ai.reply(prompt, name) if self.ai.available else f"Salut, {name}! Mă bucur să te văd!"
         self._announce(text)
         self.metrics.log(
             nume_copil=name,
@@ -1081,10 +1625,10 @@ class TriSenseBrain:
         """ID 2+ = LEGO object class learned in HuskyLens Object Classification mode."""
         name = self._child_name or "friend"
         prompt = (
-            f"The child {name} showed a LEGO piece or build recognized by the camera (class ID {object_class_id}). "
-            "Praise them in one short sentence and suggest a small play activity, in English."
+            f"Copilul {name} a arătat o piesă sau construcție LEGO recunoscută de cameră (clasă ID {object_class_id}). "
+            "Laudă-l într-o propoziție scurtă și sugerează o mică activitate de joc, în română."
         )
-        text = self.ai.reply(prompt, name) if self.ai.available else f"Great, {name}, I recognized your build!"
+        text = self.ai.reply(prompt, name) if self.ai.available else f"Super, {name}, am recunoscut construcția ta!"
         self._announce(text)
         self.metrics.log(
             nume_copil=name,
@@ -1100,11 +1644,11 @@ class TriSenseBrain:
         name = self._child_name or "friend"
         text = (
             self.ai.reply(
-                f"The round is over. Encourage {name} for taking part, very briefly, in English.",
+                f"Runda s-a terminat. Încurajează-l pe {name} că a participat, foarte pe scurt, în română.",
                 name,
             )
             if self.ai.available
-            else f"Great job, {name}! See you next play round!"
+            else f"Bravo, {name}! Ne vedem la următoarea rundă de joc!"
         )
         self._announce(text)
         self.metrics.log(
@@ -1178,8 +1722,9 @@ class TriSenseBrain:
 
         self.state = RobotState.SELECTIE_JOC
         greet_name = self._child_name or name or ""
+        self.metrics.start_session(greet_name or "friend")
         greet = (
-            f"Hi! I'm TriSense. Great to see you, {greet_name}!"
+            f"Salut! Sunt TriSense. Mă bucur să te văd, {greet_name}!"
             if greet_name
             else "Hi! I'm TriSense."
         )
@@ -1194,6 +1739,9 @@ class TriSenseBrain:
                 continue
             except KeyboardInterrupt:
                 logger.info("User stop.")
+                report = self.metrics.end_session()
+                if report:
+                    logger.info("Session report on exit: %s", report)
                 self.mqtt.stop()
                 break
             except Exception as e:
