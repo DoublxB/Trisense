@@ -1573,16 +1573,17 @@ def _mqtt_control_cb(topic, msg):
                 print(">>> speak MQTT coada:", t[:72] + ("..." if len(t) > 72 else ""))
         # PC trimite JSON true; unele JSON-uri pot da int 1 sau string
         listen = o.get("listen")
-        listen_on = listen is True or listen == 1 or listen == "true"
+        listen_on = listen is True or listen in (1, "true", "True", "1")
         if listen_on:
-            host = (o.get("pc_host") or o.get("pc_ip") or "").strip()
+            raw_host = o.get("pc_host") or o.get("pc_ip") or ""
+            if isinstance(raw_host, str):
+                host = raw_host.strip()
+            elif raw_host:
+                host = str(raw_host).strip()
+            else:
+                host = ""
             if not host:
-                try:
-                    from secrets import PC_VOICE_IP as _pv
-
-                    host = (_pv or "").strip() if isinstance(_pv, str) else ""
-                except ImportError:
-                    host = ""
+                host = _voice_host_fallback()
             try:
                 vport = int(o.get("voice_port") or VOICE_TCP_PORT_DEFAULT)
             except (TypeError, ValueError):
@@ -1597,9 +1598,10 @@ def _mqtt_control_cb(topic, msg):
                     "port": vport,
                     "duration_ms": dur,
                 }
+                print(">>> MQTT listen:", dur, "ms ->", host)
             elif listen_on:
                 if not host:
-                    print("Voce: lipseste pc_host/pc_ip sau PC_VOICE_IP in secrets.py")
+                    print("Voce: lipseste pc_host/pc_ip si PC_VOICE_IP/MQTT_BROKER in secrets.py")
                 else:
                     print("Voce: duration_ms invalid:", dur, "(acceptat 200-30000)")
         # Hub LEGO + salut PCM stabil (PAS 3)

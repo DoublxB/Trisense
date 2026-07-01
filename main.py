@@ -53,18 +53,19 @@ WHEEL_RIGHT_PORT = Port.D
 _SPEED = 380
 _WHEEL_SPEED_DEG_S = 240
 _WHEEL_MS = 700
-_ANGLE_DANCE = 55
-_ANGLE_SIDE = 40
-_ANGLE_OPEN = 50
-# Cmd 3–4 (brat sus stanga/dreapta): unghi clar dar usor.
-_ANGLE_ARM_PATTERN = 52
+# Unghiuri brațe (grade față de poziția 0) — mai ample pentru demo / juriu
+_ANGLE_DANCE = 68
+_ANGLE_SIDE = 50
+_ANGLE_OPEN = 62
+# Cmd 3–4 (braț sus stânga/dreapta)
+_ANGLE_ARM_PATTERN = 65
 # Pivot pe loc (cmd 9–10): rotatie scurta.
 _WHEEL_PIVOT_SPEED = 200
 _WHEEL_PIVOT_MS = 600
 _WHEEL_DANCE_MS = 600
 _WHEEL_EMOTION_MS = 800
 _DANCE_CYCLES = 3
-_EMOTION_ARM_EXTRA = 20
+_EMOTION_ARM_EXTRA = 26
 # Angry: pivot scurt.
 _ANGRY_PIVOT_MS = 700
 _ANGRY_CIRCLE_STEPS = 3

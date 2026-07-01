@@ -30,6 +30,7 @@ from trisense.cognitive_games import (
     parse_seconds_estimate,
 )
 from trisense.config import (
+    CO_STORY_SPEAK_MAX_CHARS,
     ESP_AUDIO_TCP_PORT,
     ESP_SPEAK_MAX_CHARS,
     TOPIC_ROBOT_CONTROL,
@@ -90,6 +91,24 @@ class TriSenseBrain:
         "angry": "furios",
         "meltdown": "criză",
     }
+
+    _EMOTION_TO_ACTION = {
+        "happy": "emotion_happy",
+        "sad": "emotion_sad",
+        "surprised": "emotion_surprised",
+        "angry": "emotion_angry",
+        "meltdown": "emotion_meltdown",
+    }
+
+    _EMOTION_ROUTINE_SEC = {
+        "emotion_happy": 22.0,
+        "emotion_sad": 9.5,
+        "emotion_surprised": 8.5,
+        "emotion_angry": 24.0,
+        "emotion_meltdown": 28.0,
+    }
+
+    _EMOTION_SHOWCASE_ORDER = ("happy", "sad", "surprised", "angry", "meltdown")
 
     def __init__(self) -> None:
         self.memory = MemoryStore()
@@ -231,6 +250,7 @@ class TriSenseBrain:
         laptop_speaker: Optional[bool] = None,
         mqtt_speak_publish: bool = True,
         wait_for_playback: bool = False,
+        max_chars: Optional[int] = None,
     ) -> bool:
         """TTS pe PC + PCM către ESP (TCP) sau fallback MQTT „speak”.
 
@@ -257,8 +277,9 @@ class TriSenseBrain:
         if not robot_only and tts_pc:
             self.tts.speak(text)
         msg = (text or "").strip()
-        if len(msg) > ESP_SPEAK_MAX_CHARS:
-            msg = msg[: max(0, ESP_SPEAK_MAX_CHARS - 3)] + "..."
+        char_limit = ESP_SPEAK_MAX_CHARS if max_chars is None else max(1, int(max_chars))
+        if len(msg) > char_limit:
+            msg = msg[: max(0, char_limit - 3)] + "..."
         tcp_attempted = False
         if msg and TRISENSE_TTS_OVER_TCP:
             target_ip = (esp_ip or self._last_esp_ip or "").strip()
@@ -495,6 +516,47 @@ class TriSenseBrain:
         if any(kw in bl_ascii for kw in ("meltdown", "breakdown", "criza", "panic", "panicat")):
             return "emotion_meltdown"
 
+        # Poze / demo emoții — toate pe rând sau câte una la comandă
+        if (
+            "toate emotiile" in bl_ascii
+            or "arata emotiile" in bl_ascii
+            or "arata toate emotiile" in bl_ascii
+            or "show all emotions" in bl
+            or "poze emotii" in bl_ascii
+            or "poze cu emotii" in bl_ascii
+            or ("poze" in bl_ascii and "emot" in bl_ascii)
+        ):
+            return "show_all_emotions"
+        if cq and (
+            "showallemotions" in cq
+            or "toateemotiile" in cq
+            or "arataemotiile" in cq
+            or "arataemotii" in cq
+            or "pozeemotii" in cq
+        ):
+            return "show_all_emotions"
+
+        _pose_kw = (
+            "arata emotia",
+            "arata emotie",
+            "show emotion",
+            "fa poza",
+            "poza cu",
+            "poza ",
+            "arata ",
+        )
+        if any(t in bl_ascii for t in _pose_kw) or "poza" in bl_ascii:
+            if any(k in bl_ascii for k in ("fericit", "happy", "bucuros", "vesel")):
+                return "pose_emotion_happy"
+            if any(k in bl_ascii for k in ("trist", "sad", "suparat")):
+                return "pose_emotion_sad"
+            if any(k in bl_ascii for k in ("surprins", "surprised", "uimit", "mirat")):
+                return "pose_emotion_surprised"
+            if any(k in bl_ascii for k in ("furios", "angry", "furie", "nervos")):
+                return "pose_emotion_angry"
+            if any(k in bl_ascii for k in ("criza", "meltdown", "crize")):
+                return "pose_emotion_meltdown"
+
         # Act. 6 — Guess the Emotion
         if "guess" in words and (
             "emotion" in words or "emotia" in bl_ascii or "emotie" in bl_ascii or "feeling" in words
@@ -578,6 +640,11 @@ class TriSenseBrain:
         # Demo juriu: salut fix + braț, pivot dreapta, braț, pivot stânga
         if "hello to the judges" in bl or "salut juriu" in bl_ascii or "salut juriului" in bl_ascii:
             return "judges_demo"
+        if "demo juriu" in bl_ascii or "prezentare juriu" in bl_ascii:
+            return "judges_demo"
+        # STT variază: „TriSense”, „Trisens”, „3Sens”, „trei sens” — „saluta comisia” e suficient
+        if "saluta comisia" in bl_ascii:
+            return "judges_demo"
         if ("judges" in words or "judge" in words) and (
             "hello" in words or "hi" in words or "everyone" in words or "demo" in words
         ):
@@ -589,6 +656,7 @@ class TriSenseBrain:
             or "judgesdemo" in cq
             or "demojudges" in cq
             or "demopentrujuriu" in cq
+            or "salutacomisia" in cq
         ):
             return "judges_demo"
 
@@ -697,6 +765,13 @@ class TriSenseBrain:
             if action == "judges_demo":
                 self._run_judges_demo(robot_only=robot_only, esp_ip=esp_ip)
                 return
+            if action == "show_all_emotions":
+                self._run_emotion_showcase(robot_only=robot_only, esp_ip=esp_ip)
+                return
+            if action.startswith("pose_emotion_"):
+                emo_key = action.replace("pose_emotion_", "", 1)
+                self._run_emotion_pose(emo_key, robot_only=robot_only, esp_ip=esp_ip)
+                return
             if action == "stop_go":
                 self._start_stop_go(name, robot_only=robot_only, esp_ip=esp_ip)
                 return
@@ -764,7 +839,7 @@ class TriSenseBrain:
 
         prompt = (
             f"Copilul a spus asta prin microfon (transcriere): {t}. "
-            "Răspunde foarte pe scurt, prietenos, în română, ca TriSense."
+            "Răspunde foarte pe scurt, prietenos, în română, ca Traisens (nu TriSense)."
         )
         text = self.ai.reply(prompt, name) if self.ai.available else f"Am auzit: {t}"
         text = (text or "").strip().strip("\"'")
@@ -785,7 +860,15 @@ class TriSenseBrain:
                 "(IP lipsa, TCP/MQTT offline sau PCM lipsa)."
             )
 
-    def _say(self, text: str, *, robot_only: bool, esp_ip: Optional[str], wait: bool = True) -> None:
+    def _say(
+        self,
+        text: str,
+        *,
+        robot_only: bool,
+        esp_ip: Optional[str],
+        wait: bool = True,
+        max_chars: Optional[int] = None,
+    ) -> None:
         """Shorthand: PCM via TCP catre difuzor robot, fara laptop, fara MQTT speak."""
         self._announce(
             text,
@@ -794,6 +877,7 @@ class TriSenseBrain:
             laptop_speaker=False,
             mqtt_speak_publish=False,
             wait_for_playback=wait,
+            max_chars=max_chars,
         )
 
     # ------------------------------------------------------------------
@@ -802,56 +886,117 @@ class TriSenseBrain:
 
     def _run_judges_demo(self, *, robot_only: bool, esp_ip: Optional[str]) -> None:
         """
-        Secvență pentru prezentare: mesaj introductor, braț drept sus, rotire dreapta,
-        braț stâng sus, rotire stânga; apoi repaus brațe.
-        Declanșare vocală: „Hello to the judges”, „hello judges”, „judges demo”, etc.
+        Secvență pentru prezentare licență: salut în română, gesturi brațe/rotiri, încheiere.
+        Declanșare vocală: „saluta comisia 3sens”, „salut juriu”, „demo juriu”, „hello to the judges”, etc.
         """
-        intro = "Hello everyone! I'm TriSense, the first LEGO robotic therapist."
         logger.info("Judges demo: intro + gesturi (numele copilului rămâne în memorie pentru dialog).")
-        vtrim = intro.strip()
-        if len(vtrim) > ESP_SPEAK_MAX_CHARS:
-            vtrim = vtrim[: max(0, ESP_SPEAK_MAX_CHARS - 3)] + "..."
-        intro_ok = self._announce(
-            vtrim,
-            robot_only=robot_only,
-            esp_ip=esp_ip,
-            laptop_speaker=False,
-            mqtt_speak_publish=False,
-            wait_for_playback=True,
-        )
-        if not intro_ok:
-            logger.warning(
-                "Judges demo: intro nu a ajuns pe difuzor (TCP/MQTT sau IP lipsă); continuă gesturile."
+
+        def _judges_say(text: str) -> None:
+            self._say(
+                text,
+                robot_only=robot_only,
+                esp_ip=esp_ip,
+                wait=True,
+                max_chars=CO_STORY_SPEAK_MAX_CHARS,
             )
-        time.sleep(0.35)
+
+        _judges_say(
+            "Bună ziua, doamnelor și domnilor! "
+            "Eu sunt Traisens, primul robot terapeut construit din LEGO!"
+        )
+        time.sleep(0.4)
         self._publish({"action": "right_arm"})
-        time.sleep(2.5)
+        time.sleep(2.8)
+        _judges_say(
+            "Sunt proiectul de licență de la Facultatea de Matematică și Informatică. "
+            "Ajut copiii să învețe prin joc, voce și mișcare."
+        )
+        time.sleep(0.35)
         self._publish({"action": "turn_right"})
-        time.sleep(1.2)
+        time.sleep(1.4)
         self._publish({"action": "left_arm"})
-        time.sleep(2.5)
+        time.sleep(2.8)
+        _judges_say(
+            "Pot vorbi, asculta, dansa, ghici emoții și verifica construcții LEGO cu camera mea. "
+            "Mulțumesc pentru atenție — sunt gata să ne jucăm!"
+        )
+        time.sleep(0.35)
         self._publish({"action": "turn_left"})
-        time.sleep(1.2)
+        time.sleep(1.4)
         self._publish({"action": "wheels_stop"})
         time.sleep(0.15)
         self._publish({"action": "repose"})
         logger.info("Judges demo terminat.")
 
     # ------------------------------------------------------------------
-    # Act. 6 — Guess the Emotion
+    # Act. 6 — Guess the Emotion + showcase poze
     # ------------------------------------------------------------------
+
+    def _emotion_photo_pause_sec(self) -> float:
+        raw = (os.environ.get("EMOTION_PHOTO_PAUSE_SEC") or "6").strip() or "6"
+        try:
+            return max(2.0, float(raw))
+        except ValueError:
+            return 6.0
+
+    def _run_emotion_pose(
+        self, emotion_key: str, *, robot_only: bool, esp_ip: Optional[str]
+    ) -> None:
+        """O singură emoție + pauză pentru poză (fără joc ghicit)."""
+        action = self._EMOTION_TO_ACTION.get(emotion_key)
+        if not action:
+            logger.warning("Emotion pose: cheie necunoscuta %r", emotion_key)
+            return
+        label = self._EMOTION_LABEL_RO.get(emotion_key, emotion_key)
+        pause = self._emotion_photo_pause_sec()
+        logger.info("Emotion pose: %s (%s), pauza poza %.1fs", emotion_key, action, pause)
+        self._say(f"Emoția {label}.", robot_only=robot_only, esp_ip=esp_ip, wait=True)
+        time.sleep(0.35)
+        self._publish({"action": action})
+        time.sleep(self._EMOTION_ROUTINE_SEC.get(action, 12.0) + pause)
+        self._publish({"action": "repose"})
+        time.sleep(0.3)
+
+    def _run_emotion_showcase(self, *, robot_only: bool, esp_ip: Optional[str]) -> None:
+        """Toate cele 5 emoții pe rând, cu pauză între ele pentru poze."""
+        order = self._EMOTION_SHOWCASE_ORDER
+        pause = self._emotion_photo_pause_sec()
+        n = len(order)
+        logger.info("Emotion showcase: %d emotii, pauza poza %.1fs", n, pause)
+        self._say(
+            f"Bine! Arăt toate cele {n} emoții. Poți face poze!",
+            robot_only=robot_only,
+            esp_ip=esp_ip,
+            wait=True,
+        )
+        time.sleep(0.4)
+        for i, key in enumerate(order, 1):
+            action = self._EMOTION_TO_ACTION[key]
+            label = self._EMOTION_LABEL_RO.get(key, key)
+            logger.info("Emotion showcase %d/%d: %s", i, n, action)
+            self._say(
+                f"Emoția {i}: {label}.",
+                robot_only=robot_only,
+                esp_ip=esp_ip,
+                wait=True,
+            )
+            time.sleep(0.35)
+            self._publish({"action": action})
+            time.sleep(self._EMOTION_ROUTINE_SEC.get(action, 12.0) + pause)
+        self._publish({"action": "repose"})
+        time.sleep(0.3)
+        self._say(
+            "Gata! Toate emoțiile. Brațele la repaus.",
+            robot_only=robot_only,
+            esp_ip=esp_ip,
+            wait=True,
+        )
+        logger.info("Emotion showcase terminat.")
 
     def _start_guess_emotion(self, name: str, *, robot_only: bool, esp_ip: Optional[str]) -> None:
         """Robot alege o emotie random, o arata cu gesturi, cere copilului sa ghiceasca."""
-        emotions = ["happy", "sad", "surprised", "angry", "meltdown"]
-        self._current_emotion = random.choice(emotions)
-        emotion_action = {
-            "happy":     "emotion_happy",
-            "sad":       "emotion_sad",
-            "surprised": "emotion_surprised",
-            "angry":     "emotion_angry",
-            "meltdown":  "emotion_meltdown",
-        }[self._current_emotion]
+        self._current_emotion = random.choice(list(self._EMOTION_TO_ACTION.keys()))
+        emotion_action = self._EMOTION_TO_ACTION[self._current_emotion]
         logger.info("Act.6 [1/4]: emotie aleasa = %s", self._current_emotion)
         self._current_activity = "GUESS_EMOTION"
 
@@ -862,14 +1007,7 @@ class TriSenseBrain:
 
         logger.info("Act.6 [3/4]: trimit cmd %s la Hub si astept rutina...", emotion_action)
         self._publish({"action": emotion_action})
-        emotion_dur = {
-            "emotion_happy": 22.0,
-            "emotion_sad": 9.5,
-            "emotion_surprised": 8.5,
-            "emotion_angry": 24.0,
-            "emotion_meltdown": 28.0,
-        }
-        time.sleep(emotion_dur.get(emotion_action, 12.0))
+        time.sleep(self._EMOTION_ROUTINE_SEC.get(emotion_action, 12.0))
         time.sleep(0.8)
 
         question = (
@@ -889,16 +1027,25 @@ class TriSenseBrain:
     ) -> None:
         """Valideaza raspunsul copilului pentru Act. 6."""
         bl = transcript.lower()
+        bl_ascii = (
+            bl.replace("â", "a")
+            .replace("ă", "a")
+            .replace("î", "i")
+            .replace("ș", "s")
+            .replace("ş", "s")
+            .replace("ț", "t")
+            .replace("ţ", "t")
+        )
         detected: Optional[str] = None
-        if any(kw in bl for kw in ("happy", "fericit", "bucuros", "vesel", "fericita")):
+        if any(kw in bl_ascii for kw in ("happy", "fericit", "bucuros", "vesel", "fericita")):
             detected = "happy"
-        elif any(kw in bl for kw in ("sad", "trist", "suparat", "tristete", "tristă")):
+        elif any(kw in bl_ascii for kw in ("sad", "trist", "suparat", "tristete", "trista")):
             detected = "sad"
-        elif any(kw in bl for kw in ("surprised", "uimit", "uimita", "mirat", "surprins")):
+        elif any(kw in bl_ascii for kw in ("surprised", "uimit", "uimita", "mirat", "surprins")):
             detected = "surprised"
-        elif any(kw in bl for kw in ("angry", "furie", "furios", "furioasa", "nervos", "enervat")):
+        elif any(kw in bl_ascii for kw in ("angry", "furie", "furios", "furioasa", "nervos", "enervat")):
             detected = "angry"
-        elif any(kw in bl for kw in ("meltdown", "criza", "panic", "panicat", "breakdown")):
+        elif any(kw in bl_ascii for kw in ("meltdown", "criza", "crize", "panic", "panicat", "breakdown")):
             detected = "meltdown"
 
         expected = self._current_emotion or "happy"
@@ -1481,14 +1628,20 @@ class TriSenseBrain:
         if self.ai.available:
             try:
                 opening = self.ai.reply(
-                    f"Începe o poveste co-construită foarte scurtă pentru copilul {name}. "
-                    f"O singură propoziție, termină cu o întrebare pentru copil. Română.",
+                    f"Începe o poveste co-construită pentru copilul {name}. "
+                    f"Maximum două propoziții scurte, termină cu o întrebare pentru copil. Română.",
                     name,
                 ).strip() or opening
             except Exception:
                 pass
         self._co_story_lines.append(f"TriSense: {opening}")
-        self._say(opening, robot_only=robot_only, esp_ip=esp_ip, wait=True)
+        self._say(
+            opening,
+            robot_only=robot_only,
+            esp_ip=esp_ip,
+            wait=True,
+            max_chars=CO_STORY_SPEAK_MAX_CHARS,
+        )
         self._publish_listen(duration_ms=15000)
 
     def _validate_co_story_turn(
@@ -1501,6 +1654,7 @@ class TriSenseBrain:
                 robot_only=robot_only,
                 esp_ip=esp_ip,
                 wait=True,
+                max_chars=CO_STORY_SPEAK_MAX_CHARS,
             )
             self._publish_listen(duration_ms=12000)
             return
@@ -1536,7 +1690,12 @@ class TriSenseBrain:
                 f"Ce poveste minunată, {name}! "
                 f"M-ai ajutat să ne imaginăm ceva special azi!"
             )
-            self._say(ending, robot_only=robot_only, esp_ip=esp_ip)
+            self._say(
+                ending,
+                robot_only=robot_only,
+                esp_ip=esp_ip,
+                max_chars=CO_STORY_SPEAK_MAX_CHARS,
+            )
             time.sleep(0.4)
             self._publish({"action": "dance"})
             self._co_story_lines = []
@@ -1551,8 +1710,8 @@ class TriSenseBrain:
             prompt = (
                 f"Co-construiește o poveste pentru copii cu {name}. Povestea până acum:\n{context}\n"
                 f"Copilul tocmai a spus: {child_line}\n"
-                "Răspunde cu O propoziție scurtă încurajatoare care continuă povestea, "
-                "apoi pune O întrebare scurtă. Doar română."
+                "Răspunde cu una sau două propoziții scurte care continuă povestea, "
+                "apoi pune o întrebare scurtă. Maximum ~250 caractere. Doar română."
             )
             try:
                 next_line = self.ai.reply(prompt, name).strip()
@@ -1562,7 +1721,13 @@ class TriSenseBrain:
             next_line = f"Wow, {name}! Ce urmează în povestea noastră?"
 
         self._co_story_lines.append(f"TriSense: {next_line}")
-        self._say(next_line, robot_only=robot_only, esp_ip=esp_ip, wait=True)
+        self._say(
+            next_line,
+            robot_only=robot_only,
+            esp_ip=esp_ip,
+            wait=True,
+            max_chars=CO_STORY_SPEAK_MAX_CHARS,
+        )
         self._publish_listen(duration_ms=15000)
 
     # ------------------------------------------------------------------
@@ -1585,13 +1750,14 @@ class TriSenseBrain:
     def _run_primul_salut(self) -> None:
         """No name in memory: ask child name and save JSON."""
         msg = (
-            "Prima întâlnire cu TriSense. Spune copilului că ești bucuros să-l cunoști. "
+            "Prima întâlnire cu Traisens. Spune copilului că ești bucuros să-l cunoști. "
+            "Prezintă-te ca Traisens (nu TriSense). "
             "Întreabă-l pe scurt cum îl cheamă, într-o singură propoziție prietenoasă, în română."
         )
         if self.ai.available:
             text = self.ai.reply(msg, "friend")
         else:
-            text = "Salut! Sunt TriSense. Cum te cheamă?"
+            text = "Salut! Sunt Traisens. Cum te cheamă?"
         self._announce(text)
         try:
             raw = input("Enter child name (then Enter): ").strip()
@@ -1724,9 +1890,9 @@ class TriSenseBrain:
         greet_name = self._child_name or name or ""
         self.metrics.start_session(greet_name or "friend")
         greet = (
-            f"Salut! Sunt TriSense. Mă bucur să te văd, {greet_name}!"
+            f"Salut! Sunt Traisens. Mă bucur să te văd, {greet_name}!"
             if greet_name
-            else "Hi! I'm TriSense."
+            else "Hi! I'm Traisens."
         )
         self._announce(greet, retain_speak_topic=False)
 

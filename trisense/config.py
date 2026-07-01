@@ -16,6 +16,8 @@ MQTT_USE_TLS = os.environ.get("MQTT_USE_TLS", "0") == "1"
 
 # Text speak trimis la ESP (Gemini TTS) — sub ~120 caractere ca sa incapa in RAM JSON+PCM
 ESP_SPEAK_MAX_CHARS = int(os.environ.get("ESP_SPEAK_MAX_CHARS", "120"))
+# Poveste co-construita: TTS pe PC (Audio TCP) — poate fi mai lung decat MQTT speak pe ESP
+CO_STORY_SPEAK_MAX_CHARS = int(os.environ.get("CO_STORY_SPEAK_MAX_CHARS", "280"))
 
 # HuskyLens class ID → nume acțiune motrice pentru robot/control (trebuie să existe în firmware ESP).
 # Exemplu: {"20":"breathe_in","21":"breathe_out","22":"dance"} — clasele 20–22 nu mai intră în ramura LEGO implicită.
